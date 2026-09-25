@@ -17,6 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Check versions line up
+        if: startsWith(github.ref, 'refs/tags/')
         run: |
           tag="${GITHUB_REF_NAME#v}"
           py=$(grep -m1 '^version = ' python/pyproject.toml | cut -d'"' -f2)
@@ -46,6 +47,10 @@ jobs:
           packages-dir: python/dist
           # Re-running a tag (e.g. after a retry) must not fail on existing files.
           skip-existing: true
+          # Optional escape hatch: set a PYPI_TOKEN repo secret to authenticate
+          # with an API token. When the secret is empty the action falls back to
+          # trusted publishing (OIDC).
+          password: ${{ secrets.PYPI_TOKEN }}
 
   npm:
     name: Publish to npm
