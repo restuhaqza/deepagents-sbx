@@ -57,6 +57,9 @@ jobs:
     permissions:
       id-token: write
       contents: read
+    env:
+      # Optional. Leave unset to use npm trusted publishing (OIDC).
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
     defaults:
       run:
         working-directory: js
@@ -65,13 +68,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          registry-url: https://registry.npmjs.org
       - name: Install
         run: npm ci
       - name: Test
         run: npm test
       - name: Build
         run: npm run build
+      - name: Configure npm auth (only when NPM_TOKEN is set)
+        if: env.NPM_TOKEN != ''
+        run: echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > "$HOME/.npmrc"
       - name: Is this version already on npm?
         id: exists
         run: |
@@ -84,8 +89,6 @@ jobs:
           fi
       - name: Publish to npm
         if: steps.exists.outputs.published != 'true'
-        # `--provenance` signs the attestation with the OIDC token. Auth uses
-        # NPM_TOKEN; switch to npm trusted publishing to drop the secret.
+        # `--provenance` signs the attestation with the OIDC token. Auth is
+        # either NPM_TOKEN (when set) or npm trusted publishing.
         run: npm publish --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
