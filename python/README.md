@@ -15,8 +15,9 @@ pip install deepagents-sbx            # backend only
 pip install "deepagents-sbx[code]"    # + Deep Agents Code provider
 ```
 
-Requires the free [`sbx` CLI](https://docs.docker.com/ai/sandboxes/) to be
-installed and logged in (`sbx login`).
+Requires **Python 3.12+** and the free
+[`sbx` CLI](https://docs.docker.com/ai/sandboxes/) installed and logged in
+(`sbx login`).
 
 ## Use
 

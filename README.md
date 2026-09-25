@@ -36,8 +36,9 @@ deepagents-sbx/
 pip install "deepagents-sbx[code]"     # or: pip install deepagents-sbx
 ```
 
-Requires the free [`sbx` CLI](https://docs.docker.com/ai/sandboxes/), installed
-and signed in:
+Requires **Python 3.12+** (`deepagents-code`, used by the `dcode` provider,
+requires 3.12) and the free [`sbx` CLI](https://docs.docker.com/ai/sandboxes/),
+installed and signed in:
 
 ```bash
 sbx login

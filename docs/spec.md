@@ -36,6 +36,27 @@ Ubuntu 26.04):
 | `sbx inspect --json` | `{..., "state": "running", ...}` (field is `state`, not `status`) |
 | network policy | must be initialized once (`sbx policy init <mode>`) before any sandbox starts |
 
+## Dependency matrix (verified against the registries)
+
+| Package | Registry | Version used | requires-python / engines |
+|---|---|---|---|
+| `deepagents` (Python) | PyPI | **0.7.19** | `>=3.11,<4` |
+| `deepagents-code` | PyPI | **0.1.77** | `>=3.12,<4` |
+| `deepagents` (JS) | npm | **1.14.1** | no `engines` field; peers on `langchain ^1.5.10`, `@langchain/core ^1.2.9`, `@langchain/langgraph ^1.4.10`, `@langchain/langgraph-sdk ^1.9.23`, `@langchain/langgraph-checkpoint ^1.1.5`, `langsmith >=0.7.1 <0.10.0` |
+
+Consequences:
+
+- **`requires-python = ">=3.12"`** — `deepagents-code` (the dcode provider, an
+  in-scope feature) requires 3.12, even though `deepagents` itself allows 3.11.
+- **`dependencies = ["deepagents>=0.7.19"]`** — the earlier `>=0.6` floor let the
+  resolver install 0.7.6 on Python 3.11, where `glob()` returns **relative**
+  paths instead of absolute ones. The contract tests pin 0.7.19 behavior.
+- **`code = ["deepagents-code>=0.1.77"]`** — same reasoning; 0.0.1 is a stub.
+- **No `cloud` extra** — cloud ships through the `sbx` CLI, so it needs no extra
+  dependency.
+- **JS peer dependency `deepagents >=1`** — `deepagents` declares its own
+  LangChain peers, so we do not repeat them.
+
 ## Architecture
 
 ```
@@ -161,6 +182,8 @@ workspace; `create` rejects one.
 | `sbx inspect` works everywhere | ❌ Not implemented in `--cloud` mode (v0.45.1); the transport raises. Cloud metadata comes from `ls`. |
 | Cloud sandbox ids are names | `sbx --cloud ls --json` returns a stable `sbx_*` id; `SbxSandbox.id` resolves to it. |
 | Cloud sizing accepts arbitrary CPU/memory | It must land on a billable shape; the backend validates and raises `SbxShapeError` before any API call. |
+| `requires-python >=3.11` matches deepagents 0.7.x | The real floor is **3.12**: `deepagents-code` (needed for the dcode provider) requires `>=3.12`. `deepagents` alone allows 3.11. |
+| `dependencies = ["deepagents>=0.6"]` | Floor raised to **`>=0.7.19`**: the loose pin let Python 3.11 resolve deepagents 0.7.6, whose `glob()` returns relative paths. |
 | `sbx ls --json` field `status` also on inspect | `inspect` uses `state`; `ls` uses `status`. |
 | Working dir when a workspace is mounted | the host path itself (virtiofs mounts at the same absolute path), not `/home/agent/workspace`. |
 | `SandboxProviderMetadata` shape | confirmed exactly (`name`, `working_dir`, `install`, `supports_sandbox_id`, `supports_snapshot_name`, `backend_module`). |

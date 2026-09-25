@@ -7,7 +7,7 @@ name = "deepagents-sbx"
 version = "0.1.0"
 description = "Docker Sandboxes (sbx) microVM sandbox backend for Deep Agents"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "restuhaqza" }]
@@ -25,20 +25,20 @@ classifiers = [
   "Intended Audience :: Developers",
   "License :: OSI Approved :: MIT License",
   "Programming Language :: Python :: 3",
-  "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
   "Topic :: Software Development :: Libraries :: Python Modules",
 ]
-dependencies = ["deepagents>=0.6"]
+# deepagents-code 0.1.x requires >=3.12, and deepagents 0.7.6 and earlier
+# return relative glob paths (the contract tests pin the 0.7.19 behavior).
+dependencies = ["deepagents>=0.7.19"]
 
 [project.optional-dependencies]
-# Deep Agents Code provider (`dcode --sandbox sbx`).
-code = ["deepagents-code"]
-# Cloud Sandboxes REST client (phase 2).
-cloud = ["httpx"]
+# Deep Agents Code provider (`dcode --sandbox sbx` / `sbx-cloud`).
+code = ["deepagents-code>=0.1.77"]
 dev = [
-  "deepagents-code",
+  "deepagents-code>=0.1.77",
   "mypy>=1.11",
   "pytest>=8",
   "pytest-asyncio>=0.24",
@@ -71,7 +71,7 @@ addopts = "-m 'not integration'"
 
 [tool.ruff]
 line-length = 120
-target-version = "py311"
+target-version = "py312"
 src = ["src", "tests"]
 
 [tool.ruff.lint]
@@ -82,7 +82,7 @@ ignore = ["PLR0913", "S603", "S607"]
 "tests/**" = ["S101", "S105", "S106", "S108", "PLR2004", "RUF100"]
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 strict = true
 warn_unused_ignores = true
 ignore_missing_imports = true
