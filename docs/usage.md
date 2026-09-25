@@ -169,6 +169,13 @@ ttl = "2h"
   `download_files()`.
 - **`inspect()` is unsupported** in cloud mode (`sbx inspect` is not implemented
   with `--cloud`); use `list()` for metadata.
+- **Egress defaults to `deny-all`.** The cloud account policy is separate from
+  the local one; set it with `sbx --cloud policy init balanced` before expecting
+  package installs or network calls to work.
+  ```bash
+  sbx --cloud policy ls                 # Default: deny-all
+  sbx --cloud policy init balanced      # or allow-all / deny-all
+  ```
 - **No `docker`-in-sandbox guarantee** beyond what the cloud image provides.
 
 ## Network policy
