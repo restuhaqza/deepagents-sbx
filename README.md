@@ -3,6 +3,8 @@
 > Docker Sandboxes (`sbx`) microVM sandbox backend for [Deep Agents](https://github.com/langchain-ai/deepagents) — Python & JavaScript.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![PyPI](https://img.shields.io/pypi/v/deepagents-sbx.svg)](https://pypi.org/project/deepagents-sbx/)
+[![npm](https://img.shields.io/npm/v/deepagents-sbx.svg)](https://www.npmjs.com/package/deepagents-sbx)
 ![Status: alpha](https://img.shields.io/badge/status-alpha-orange)
 
 Deep Agents ships sandbox backends for LangSmith, Daytona, Modal, Runloop,
@@ -217,7 +219,7 @@ every argv and emits canned output.
 - [x] **M1** — Python `SbxSandbox` + unit/contract tests
 - [x] **M2** — `SbxProvider` + `dcode` entry point
 - [x] **M3** — JavaScript `SbxSandbox` (`deepagents` JS `BaseSandbox`) + tests
-- [ ] **M4** — publish to PyPI + npm (integration matrix green)
+- [x] **M4** — published to PyPI + npm (v0.1.0)
 - [x] **M5** — Cloud transport (`sbx --cloud` via `CliSbxTransport(cloud=True)`, Python & JS)
 
 ## License

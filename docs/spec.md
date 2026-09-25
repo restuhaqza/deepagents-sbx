@@ -167,7 +167,7 @@ workspace; `create` rejects one.
 | M1 | Python `SbxSandbox` + tests | ✅ |
 | M2 | `SbxProvider` + dcode entry point | ✅ |
 | M3 | JS `SbxSandbox` + tests | ✅ |
-| M4 | integration matrix, README, publish | ☐ publish pending (integration green on macOS) |
+| M4 | integration matrix, README, publish | ✅ published to PyPI + npm as v0.1.0 |
 | M5 | cloud transport | ✅ `sbx --cloud` CLI mode, Python & JS |
 
 ## Corrections to the original spec

@@ -44,6 +44,8 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: python/dist
+          # Re-running a tag (e.g. after a retry) must not fail on existing files.
+          skip-existing: true
 
   npm:
     name: Publish to npm
@@ -70,7 +72,18 @@ jobs:
         run: npm test
       - name: Build
         run: npm run build
+      - name: Is this version already on npm?
+        id: exists
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if npm view "deepagents-sbx@${version}" version >/dev/null 2>&1; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::deepagents-sbx@${version} is already published; skipping."
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: Publish to npm
+        if: steps.exists.outputs.published != 'true'
         # `--provenance` signs the attestation with the OIDC token. Auth uses
         # NPM_TOKEN; switch to npm trusted publishing to drop the secret.
         run: npm publish --access public --provenance
