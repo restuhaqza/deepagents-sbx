@@ -55,6 +55,9 @@ backend.remove()   # explicit
 | `auto_remove` | `True` | Delete on `close()`. |
 | `auto_create` | `True` | Create on construction if missing. |
 | `pull` | sbx default | Image pull policy, e.g. `"missing"`. |
+| `cloud` | `False` | Target Docker Cloud Sandboxes instead of a local microVM. |
+| `ttl` | sandbox default | Cloud-only time-to-live, e.g. `"2h"`. Recommended for cost control. |
+| `on_timeout` | `"delete"` | Cloud-only: `"delete"` or `"stop"` when the TTL lapses. |
 
 ### Attaching and reattaching
 
@@ -104,6 +107,69 @@ profile = "balanced"
 
 Unknown params are ignored with a debug log rather than raising, so configs stay
 forward-compatible.
+
+## Cloud Sandboxes
+
+Docker Cloud Sandboxes are paid and have no host workspace. The same transport
+is used with the global `sbx --cloud` flag:
+
+```python
+with SbxSandbox(cloud=True, cpus=1, memory="2g", ttl="10m") as backend:
+    backend.execute("echo hello")
+    artifacts = backend.download_files(["/home/agent/workspace/out.txt"])
+```
+
+```ts
+const backend = new SbxSandbox({ cloud: true, cpus: 1, memory: "2g", ttl: "10m" });
+```
+
+### Billable shapes
+
+Sizing must land exactly on a shape (the pair is validated before any API call,
+raising `SbxShapeError`):
+
+| Shape | vCPU | Memory |
+|---|---|---|
+| `micro` | 1 | 2048 MiB |
+| `small` (default) | 2 | 4096 MiB |
+| `medium` | 4 | 8192 MiB |
+| `large` | 8 | 16384 MiB |
+| `xl` | 16 | 32768 MiB |
+
+```python
+from deepagents_sbx import resolve_cloud_shape
+resolve_cloud_shape(4, "8g")   # -> "medium"
+```
+
+### TTL
+
+Always set a TTL so an abandoned sandbox does not keep billing:
+
+```python
+backend.ttl()              # {"expires_at": ..., "expires_in_seconds": ...}
+backend.extend_ttl("30m")  # push the expiration out
+```
+
+### Deep Agents Code
+
+```bash
+dcode --sandbox sbx-cloud
+```
+
+```toml
+[sandboxes.providers.sbx-cloud.params]
+cpus = 4
+memory = "8g"
+ttl = "2h"
+```
+
+### Cloud limitations
+
+- **No workspace bind mount** — `workspace=` raises. Retrieve results with
+  `download_files()`.
+- **`inspect()` is unsupported** in cloud mode (`sbx inspect` is not implemented
+  with `--cloud`); use `list()` for metadata.
+- **No `docker`-in-sandbox guarantee** beyond what the cloud image provides.
 
 ## Network policy
 

@@ -97,6 +97,24 @@ try {
 
 The JS backend is pure POSIX — no `python3` needed inside the sandbox.
 
+## Cloud Sandboxes
+
+Docker Cloud Sandboxes (paid) are supported through the same transport:
+
+```python
+with SbxSandbox(cloud=True, cpus=1, memory="2g", ttl="10m") as backend:
+    ...
+```
+
+```ts
+const backend = new SbxSandbox({ cloud: true, cpus: 1, memory: "2g", ttl: "10m" });
+```
+
+- **No workspace.** Cloud sandboxes have no host bind mount; use `download_files()` to retrieve artifacts.
+- **Billable shapes.** Sizing must land on one of `micro` (1/2048 MiB), `small` (2/4096), `medium` (4/8192), `large` (8/16384), `xl` (16/32768). An invalid pair raises `SbxShapeError` *before* any API call. Defaults to `small`.
+- **TTL.** Pass `ttl="2h"` / `onTimeout="delete"|"stop"`, and read or extend it with `backend.ttl()` / `backend.extend_ttl("5m")`.
+- **Deep Agents Code:** the second provider `sbx-cloud` selects it — `dcode --sandbox sbx-cloud`.
+
 ## Architecture
 
 ```mermaid
@@ -128,8 +146,14 @@ The transport is an interface so implementations stay swappable:
 | Transport | Environment | Status |
 |---|---|---|
 | `CliSbxTransport` — subprocess to the `sbx` CLI | local (free) | ✅ Python & JS |
-| Own REST client over the OpenAPI contract | cloud (paid) | planned (M5) |
-| Official `@docker/sandboxes` TypeScript SDK | cloud, JS only | planned (M5) |
+| `CliSbxTransport(cloud=True)` — `sbx --cloud …` | cloud (paid) | ✅ Python & JS |
+| Own REST client over the OpenAPI contract | cloud | optional alternative |
+| Official `@docker/sandboxes` TypeScript SDK | cloud, JS only | optional alternative |
+
+Cloud goes through the same CLI transport: `--cloud` is a global `sbx` flag, so
+create/exec/cp/rm/ls/ttl reuse the local code path (streaming, timeouts, error
+mapping) with no separate auth or REST client to maintain. The REST/SDK options
+stay open behind the same `SbxTransport` seam.
 
 The local CLI is the only *supported* interface for local sandboxes — Docker
 documents no local REST API. The official SDK is TypeScript-only, cloud-only,
@@ -193,7 +217,7 @@ every argv and emits canned output.
 - [x] **M2** — `SbxProvider` + `dcode` entry point
 - [x] **M3** — JavaScript `SbxSandbox` (`deepagents` JS `BaseSandbox`) + tests
 - [ ] **M4** — publish to PyPI + npm (integration matrix green)
-- [ ] **M5** — cloud transport
+- [x] **M5** — Cloud transport (`sbx --cloud` via `CliSbxTransport(cloud=True)`, Python & JS)
 
 ## License
 

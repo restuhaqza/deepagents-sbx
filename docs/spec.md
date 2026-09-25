@@ -111,7 +111,24 @@ sandbox host. The Python base class uses a server-side `python3` script for
 | download | `sbx cp <n>:<src> <tmp>` → read |
 | id | `id` from `sbx ls --json`, fallback name |
 | delete | `sbx rm --force <n>` |
-| inspect | `sbx inspect <n> --json` |
+| inspect | `sbx inspect <n> --json` (local only) |
+
+### Cloud mode (`--cloud`)
+
+`--cloud` is a global `sbx` flag, so the same transport is reused with the flag
+injected. Differences verified against v0.45.1:
+
+| Backend need | `sbx --cloud` invocation |
+|---|---|
+| create | `sbx --cloud create --name <n> --cpus <shape-cpu> --memory <shape-mib>m [--ttl D] [--on-timeout delete\|stop] shell` |
+| execute / upload / download / delete / list | identical to local, with `--cloud` |
+| id | `sbx --cloud ls --json` → stable `id` is an `sbx_*` string |
+| inspect | ❌ not implemented in cloud mode → the transport raises `SbxError` |
+| ttl | `sbx --cloud ttl <n> --json`; extend with `sbx --cloud ttl +DURATION <n> --json` |
+
+Billable shapes: `micro` (1/2048), `small` (2/4096, default), `medium`
+(4/8192), `large` (8/16384), `xl` (16/32768). Cloud sandboxes have no host
+workspace; `create` rejects one.
 
 ## Testing strategy
 
@@ -129,8 +146,8 @@ sandbox host. The Python base class uses a server-side `python3` script for
 | M1 | Python `SbxSandbox` + tests | ✅ |
 | M2 | `SbxProvider` + dcode entry point | ✅ |
 | M3 | JS `SbxSandbox` + tests | ✅ |
-| M4 | integration matrix, README, publish | ☐ (integration green on macOS; publish pending) |
-| M5 | cloud transport | ☐ |
+| M4 | integration matrix, README, publish | ☐ publish pending (integration green on macOS) |
+| M5 | cloud transport | ✅ `sbx --cloud` CLI mode, Python & JS |
 
 ## Corrections to the original spec
 
@@ -140,6 +157,10 @@ sandbox host. The Python base class uses a server-side `python3` script for
 | Sandbox teardown method `delete()` | Must be `remove()`: `BaseSandbox.delete(file_path)` already owns the file-deletion tool, so overriding it breaks that tool. |
 | `sbx cp` upload preserves file permissions | It preserves the source mode *and* ownership; a `0600` staging file is unreadable/unwritable by the sandbox user, so uploads are staged `0666`. |
 | JS and Python base classes are equivalent | They differ: JS `ls` marks directories with a trailing `/`; JS `glob` returns paths relative to the search root; JS `read` returns `content` (not `file_data.content`); JS `grep` output is colon-parsed (`path:line:text`) while Python uses NUL separators (GNU `grep -Z`). |
+| Cloud needs a REST client or the official TS SDK | `--cloud` is a **global CLI flag** covering create/exec/cp/rm/ls/stop/attach/ports/policy/ttl, so the CLI transport serves cloud too — no REST client or SDK required. |
+| `sbx inspect` works everywhere | ❌ Not implemented in `--cloud` mode (v0.45.1); the transport raises. Cloud metadata comes from `ls`. |
+| Cloud sandbox ids are names | `sbx --cloud ls --json` returns a stable `sbx_*` id; `SbxSandbox.id` resolves to it. |
+| Cloud sizing accepts arbitrary CPU/memory | It must land on a billable shape; the backend validates and raises `SbxShapeError` before any API call. |
 | `sbx ls --json` field `status` also on inspect | `inspect` uses `state`; `ls` uses `status`. |
 | Working dir when a workspace is mounted | the host path itself (virtiofs mounts at the same absolute path), not `/home/agent/workspace`. |
 | `SandboxProviderMetadata` shape | confirmed exactly (`name`, `working_dir`, `install`, `supports_sandbox_id`, `supports_snapshot_name`, `backend_module`). |

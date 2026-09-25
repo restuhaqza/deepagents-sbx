@@ -61,6 +61,17 @@ const backend = await SbxSandbox.attach("my-sandbox");
 Unlike the Python port, the JS backend is pure POSIX and needs no `python3`
 inside the sandbox.
 
+### Cloud
+
+```ts
+const backend = new SbxSandbox({ cloud: true, cpus: 1, memory: "2g", ttl: "10m" });
+```
+
+Cloud sandboxes are billable, have no host workspace, and must use a billable
+shape (`micro`/`small`/`medium`/`large`/`xl`); an invalid pair throws
+`SbxShapeError` before any call. Use `backend.ttl()` / `backend.extendTtl("5m")`
+and always set `ttl` so an abandoned sandbox stops billing.
+
 ## Testing
 
 ```bash
