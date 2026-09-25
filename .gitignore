@@ -17,6 +17,7 @@ htmlcov/
 node_modules/
 js/dist/
 *.tsbuildinfo
+*.tgz
 
 # Editors / OS
 .DS_Store

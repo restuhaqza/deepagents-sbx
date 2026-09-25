@@ -128,8 +128,8 @@ sandbox host. The Python base class uses a server-side `python3` script for
 | M0 | transport spike, image verification | ✅ |
 | M1 | Python `SbxSandbox` + tests | ✅ |
 | M2 | `SbxProvider` + dcode entry point | ✅ |
-| M3 | JS `SbxSandbox` + tests | ☐ |
-| M4 | integration matrix, README, publish | ☐ (integration suite written) |
+| M3 | JS `SbxSandbox` + tests | ✅ |
+| M4 | integration matrix, README, publish | ☐ (integration green on macOS; publish pending) |
 | M5 | cloud transport | ☐ |
 
 ## Corrections to the original spec
@@ -138,6 +138,8 @@ sandbox host. The Python base class uses a server-side `python3` script for
 |---|---|
 | CT-FS-04: `write()` on an existing path refuses with "already exists" | Python `BaseSandbox.write()` **overwrites**; the JS port has a different contract. |
 | Sandbox teardown method `delete()` | Must be `remove()`: `BaseSandbox.delete(file_path)` already owns the file-deletion tool, so overriding it breaks that tool. |
+| `sbx cp` upload preserves file permissions | It preserves the source mode *and* ownership; a `0600` staging file is unreadable/unwritable by the sandbox user, so uploads are staged `0666`. |
+| JS and Python base classes are equivalent | They differ: JS `ls` marks directories with a trailing `/`; JS `glob` returns paths relative to the search root; JS `read` returns `content` (not `file_data.content`); JS `grep` output is colon-parsed (`path:line:text`) while Python uses NUL separators (GNU `grep -Z`). |
 | `sbx ls --json` field `status` also on inspect | `inspect` uses `state`; `ls` uses `status`. |
 | Working dir when a workspace is mounted | the host path itself (virtiofs mounts at the same absolute path), not `/home/agent/workspace`. |
 | `SandboxProviderMetadata` shape | confirmed exactly (`name`, `working_dir`, `install`, `supports_sandbox_id`, `supports_snapshot_name`, `backend_module`). |
