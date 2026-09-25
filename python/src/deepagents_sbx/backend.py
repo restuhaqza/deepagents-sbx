@@ -21,6 +21,8 @@ import posixpath
 import shlex
 import tempfile
 import uuid
+from collections.abc import Mapping
+from typing import Any
 
 from deepagents.backends.protocol import (
     ExecuteResponse,
@@ -105,6 +107,13 @@ class SbxSandbox(BaseSandbox):
             construction if it does not already exist.
         pull: Image pull policy passed through to ``sbx create`` (e.g.
             ``"missing"`` to avoid re-pulling an unchanged image).
+        cloud: Target Docker Cloud Sandboxes (``sbx --cloud …``) instead of a
+            local microVM. Cloud sandboxes have no host workspace, bill per
+            shape, and size via :data:`~deepagents_sbx.transport.CLOUD_SHAPES`.
+        ttl: Cloud-only time-to-live (e.g. ``"2h"``) before the sandbox times
+            out. Strongly recommended for cost control.
+        on_timeout: Cloud-only behaviour when ``ttl`` lapses: ``"delete"``
+            (default) or ``"stop"``.
     """
 
     def __init__(
@@ -122,8 +131,18 @@ class SbxSandbox(BaseSandbox):
         auto_remove: bool = True,
         auto_create: bool = True,
         pull: str | None = None,
+        cloud: bool = False,
+        ttl: str | None = None,
+        on_timeout: str | None = None,
     ) -> None:
-        self._transport: SbxTransport = transport or CliSbxTransport()
+        self._transport: SbxTransport = transport or CliSbxTransport(cloud=cloud)
+        self.cloud: bool = bool(cloud or getattr(self._transport, "cloud", False))
+        if self.cloud and workspace:
+            msg = (
+                "Cloud sandboxes have no host workspace; pass workspace=None "
+                "and retrieve results with download_files()."
+            )
+            raise ValueError(msg)
         self.name: str = name or f"deepagents-sbx-{uuid.uuid4().hex[:8]}"
         self.agent = agent
         self.workspace = workspace
@@ -133,11 +152,13 @@ class SbxSandbox(BaseSandbox):
         self.timeout = timeout
         self.max_output_bytes = max_output_bytes
         self.auto_remove = auto_remove
+        self.ttl_value = ttl
+        self.on_timeout = on_timeout
         self._id: str | None = None
         self._removed = False
 
         if auto_create and not self._transport.exists(self.name):
-            logger.debug("Creating sbx sandbox %r (agent=%s)", self.name, agent)
+            logger.debug("Creating sbx sandbox %r (agent=%s, cloud=%s)", self.name, agent, self.cloud)
             self._transport.create(
                 self.name,
                 agent=agent,
@@ -146,6 +167,8 @@ class SbxSandbox(BaseSandbox):
                 memory=memory,
                 profile=profile,
                 pull=pull,
+                ttl=ttl,
+                on_timeout=on_timeout,
             )
 
     # -- construction helpers ---------------------------------------------
@@ -289,6 +312,14 @@ class SbxSandbox(BaseSandbox):
         )
         if not result.ok:
             raise classify_failure(result)
+
+    def ttl(self) -> Mapping[str, Any] | None:
+        """Return the cloud sandbox's TTL/expiration (cloud-only)."""
+        return self._transport.ttl(self.name)
+
+    def extend_ttl(self, duration: str) -> Mapping[str, Any] | None:
+        """Extend the cloud sandbox's TTL by ``duration`` (e.g. ``"2h"``)."""
+        return self._transport.extend_ttl(self.name, duration)
 
     def remove(self) -> None:
         """Remove the sandbox and its resources (idempotent).

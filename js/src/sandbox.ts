@@ -18,7 +18,7 @@ import { join, posix } from "node:path";
 import { BaseSandbox } from "deepagents";
 import type { ExecuteResponse, FileDownloadResponse, FileOperationError, FileUploadResponse } from "deepagents";
 
-import { SbxNotFoundError, SbxTimeoutError } from "./errors.js";
+import { SbxError, SbxNotFoundError, SbxTimeoutError } from "./errors.js";
 import { CliSbxTransport, DEFAULT_MAX_OUTPUT_BYTES, classifyFailure, type SbxTransport } from "./transport.js";
 
 export const DEFAULT_AGENT = "shell";
@@ -58,6 +58,12 @@ export interface SbxSandboxOptions {
   autoCreate?: boolean;
   /** Image pull policy passed to `sbx create`. */
   pull?: string;
+  /** Target Docker Cloud Sandboxes (`sbx --cloud …`) instead of local. */
+  cloud?: boolean;
+  /** Cloud-only time-to-live, e.g. `"2h"`. Recommended for cost control. */
+  ttl?: string;
+  /** Cloud-only behaviour when `ttl` lapses: `"delete"` or `"stop"`. */
+  onTimeout?: string;
 }
 
 function isSafeAbsolutePath(path: string): boolean {
@@ -83,6 +89,7 @@ export class SbxSandbox extends BaseSandbox {
   readonly name: string;
   readonly agent: string;
   readonly workspace?: string;
+  readonly cloud: boolean;
   readonly timeout: number;
   readonly maxOutputBytes: number;
   readonly autoRemove: boolean;
@@ -92,6 +99,8 @@ export class SbxSandbox extends BaseSandbox {
   private readonly cpus?: number;
   private readonly memory?: string;
   private readonly profile?: string;
+  private readonly ttlValue?: string;
+  private readonly onTimeout?: string;
   private readonly transport: SbxTransport;
 
   private idValue?: string;
@@ -101,7 +110,11 @@ export class SbxSandbox extends BaseSandbox {
 
   constructor(options: SbxSandboxOptions = {}) {
     super();
-    this.transport = options.transport ?? new CliSbxTransport();
+    this.transport = options.transport ?? new CliSbxTransport("sbx", { cloud: options.cloud ?? false });
+    this.cloud = (options.cloud ?? false) || (this.transport.cloud ?? false);
+    if (this.cloud && options.workspace) {
+      throw new SbxError("Cloud sandboxes have no host workspace; pass workspace=undefined and use downloadFiles().");
+    }
     this.name = options.name ?? `deepagents-sbx-${randomUUID().slice(0, 8)}`;
     this.agent = options.agent ?? DEFAULT_AGENT;
     this.workspace = options.workspace;
@@ -113,6 +126,8 @@ export class SbxSandbox extends BaseSandbox {
     this.cpus = options.cpus;
     this.memory = options.memory;
     this.profile = options.profile;
+    this.ttlValue = options.ttl;
+    this.onTimeout = options.onTimeout;
   }
 
   /** Stable sandbox id once resolved; the name until then. */
@@ -157,6 +172,8 @@ export class SbxSandbox extends BaseSandbox {
         memory: this.memory,
         profile: this.profile,
         pull: this.pull,
+        ttl: this.ttlValue,
+        onTimeout: this.onTimeout,
       });
     }
     this.idValue = await this.resolveId();
@@ -251,6 +268,16 @@ export class SbxSandbox extends BaseSandbox {
       maxOutputBytes: this.maxOutputBytes,
     });
     if (result.exitCode !== 0) throw classifyFailure(result);
+  }
+
+  /** Return the cloud sandbox's TTL/expiration (cloud-only). */
+  async ttl(): Promise<Record<string, unknown> | null> {
+    return this.transport.ttl(this.name);
+  }
+
+  /** Extend the cloud sandbox's TTL by `duration` (e.g. `"2h"`). */
+  async extendTtl(duration: string): Promise<Record<string, unknown> | null> {
+    return this.transport.extendTtl(this.name, duration);
   }
 
   /**

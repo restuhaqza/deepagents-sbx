@@ -40,6 +40,14 @@ class SbxNotFoundError(SbxError):
     """The named sandbox does not exist (or was removed concurrently)."""
 
 
+class SbxShapeError(SbxError):
+    """The requested cloud sandbox sizing does not name a billable shape.
+
+    Cloud sandboxes bill per shape, so an invalid ``--cpus``/``--memory`` pair is
+    rejected before any API call is made.
+    """
+
+
 class SbxCommandError(SbxError):
     """``sbx`` exited non-zero for a command the transport could not interpret.
 
@@ -77,5 +85,6 @@ __all__ = [
     "SbxNotFoundError",
     "SbxNotInstalledError",
     "SbxPolicyError",
+    "SbxShapeError",
     "SbxTimeoutError",
 ]

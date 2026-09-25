@@ -13,14 +13,18 @@ export {
   SbxNotFoundError,
   SbxNotInstalledError,
   SbxPolicyError,
+  SbxShapeError,
   SbxTimeoutError,
 } from "./errors.js";
 
 export {
+  CLOUD_SHAPES,
   CliSbxTransport,
   DEFAULT_MAX_OUTPUT_BYTES,
   classifyFailure,
+  parseMemoryMib,
   parseSandboxList,
+  resolveCloudShape,
 } from "./transport.js";
 
 export type {

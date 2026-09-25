@@ -21,21 +21,26 @@ from .errors import (
     SbxNotFoundError,
     SbxNotInstalledError,
     SbxPolicyError,
+    SbxShapeError,
     SbxTimeoutError,
 )
 from .transport import (
+    CLOUD_SHAPES,
     DEFAULT_MAX_OUTPUT_BYTES,
     CliSbxTransport,
     CommandResult,
     SandboxInfo,
     SbxTransport,
     classify_failure,
+    parse_memory_mib,
     parse_sandbox_list,
+    resolve_cloud_shape,
 )
 
 __version__ = "0.1.0"
 
 __all__ = [
+    "CLOUD_SHAPES",
     "DEFAULT_AGENT",
     "DEFAULT_MAX_OUTPUT_BYTES",
     "DEFAULT_TIMEOUT",
@@ -50,9 +55,12 @@ __all__ = [
     "SbxNotInstalledError",
     "SbxPolicyError",
     "SbxSandbox",
+    "SbxShapeError",
     "SbxTimeoutError",
     "SbxTransport",
     "__version__",
     "classify_failure",
+    "parse_memory_mib",
     "parse_sandbox_list",
+    "resolve_cloud_shape",
 ]

@@ -22,10 +22,12 @@ export interface SpyTransportOptions {
   downloadErrors?: (string | undefined)[];
   downloadContents?: (Uint8Array | undefined)[];
   execError?: Error;
+  cloud?: boolean;
 }
 
 export class SpyTransport implements SbxTransport {
   readonly calls: Call[] = [];
+  readonly cloud: boolean;
   private readonly sandboxes: SandboxInfo[];
   private readonly execResults: CommandResult[];
   private readonly uploadErrors: (string | undefined)[];
@@ -34,6 +36,7 @@ export class SpyTransport implements SbxTransport {
   private readonly execError?: Error;
 
   constructor(options: SpyTransportOptions = {}) {
+    this.cloud = options.cloud ?? false;
     this.sandboxes = options.sandboxes ?? [];
     this.execResults = options.execResults ?? [];
     this.uploadErrors = options.uploadErrors ?? [];
@@ -92,5 +95,15 @@ export class SpyTransport implements SbxTransport {
   async exists(name: string): Promise<boolean> {
     this.calls.push({ method: "exists", args: [name] });
     return this.sandboxes.some((info) => info.name === name || info.id === name);
+  }
+
+  async ttl(sandbox: string): Promise<Record<string, unknown> | null> {
+    this.calls.push({ method: "ttl", args: [sandbox] });
+    return null;
+  }
+
+  async extendTtl(sandbox: string, duration: string): Promise<Record<string, unknown> | null> {
+    this.calls.push({ method: "extendTtl", args: [sandbox, duration] });
+    return null;
   }
 }

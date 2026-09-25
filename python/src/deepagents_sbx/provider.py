@@ -28,6 +28,7 @@ from .transport import CliSbxTransport, SbxTransport
 logger = logging.getLogger(__name__)
 
 PROVIDER_NAME: str = "sbx"
+CLOUD_PROVIDER_NAME: str = "sbx-cloud"
 PACKAGE_NAME: str = "deepagents-sbx"
 BACKEND_MODULE: str = "deepagents_sbx.backend"
 
@@ -42,6 +43,9 @@ _SANDBOX_KEYS: frozenset[str] = frozenset(
         "max_output_bytes",
         "auto_remove",
         "pull",
+        "cloud",
+        "ttl",
+        "on_timeout",
     }
 )
 
@@ -96,4 +100,52 @@ class SbxProvider(SandboxProvider):
             logger.debug("Sandbox %r already removed", sandbox_id)
 
 
-__all__ = ["BACKEND_MODULE", "PACKAGE_NAME", "PROVIDER_NAME", "SbxProvider"]
+class SbxCloudProvider(SbxProvider):
+    """Provider that targets Docker Cloud Sandboxes.
+
+    Registered as the ``sbx-cloud`` entry point so ``dcode --sandbox sbx-cloud``
+    selects cloud. Cloud sandboxes have no host workspace, bill per shape, and
+    support a TTL.
+    """
+
+    @property
+    def metadata(self) -> SandboxProviderMetadata:
+        """Static capability description for the cloud provider."""
+        return SandboxProviderMetadata(
+            name=CLOUD_PROVIDER_NAME,
+            working_dir=DEFAULT_WORKING_DIR,
+            install=SandboxInstallHint(kind="package", name=PACKAGE_NAME),
+            supports_sandbox_id=True,
+            supports_snapshot_name=False,
+            backend_module=BACKEND_MODULE,
+        )
+
+    def get_or_create(
+        self,
+        *,
+        sandbox_id: str | None = None,
+        **kwargs: Any,
+    ) -> SbxSandbox:
+        """Like :meth:`SbxProvider.get_or_create`, but always cloud."""
+        kwargs["cloud"] = True
+        return super().get_or_create(sandbox_id=sandbox_id, **kwargs)
+
+    def delete(
+        self,
+        *,
+        sandbox_id: str,
+        **kwargs: Any,
+    ) -> None:
+        """Delete the cloud sandbox, tolerating one that is already gone."""
+        kwargs.setdefault("transport", CliSbxTransport(cloud=True))
+        super().delete(sandbox_id=sandbox_id, **kwargs)
+
+
+__all__ = [
+    "BACKEND_MODULE",
+    "CLOUD_PROVIDER_NAME",
+    "PACKAGE_NAME",
+    "PROVIDER_NAME",
+    "SbxCloudProvider",
+    "SbxProvider",
+]

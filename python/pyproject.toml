@@ -47,6 +47,7 @@ dev = [
 
 [project.entry-points."deepagents_code.sandbox_providers"]
 sbx = "deepagents_sbx.provider:SbxProvider"
+sbx-cloud = "deepagents_sbx.provider:SbxCloudProvider"
 
 [project.urls]
 Homepage = "https://github.com/restuhaqza/deepagents-sbx"

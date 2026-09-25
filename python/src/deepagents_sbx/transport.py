@@ -45,6 +45,7 @@ from .errors import (
     SbxNotFoundError,
     SbxNotInstalledError,
     SbxPolicyError,
+    SbxShapeError,
     SbxTimeoutError,
 )
 
@@ -85,6 +86,90 @@ _NOT_FOUND_MARKERS: tuple[str, ...] = (
 
 _LOGIN_HINT = "Run 'sbx login' first."
 _POLICY_HINT = "Run 'sbx policy init <allow-all|balanced|deny-all>' first."
+
+CLOUD_SHAPES: dict[str, tuple[int, int]] = {
+    "micro": (1, 2048),
+    "small": (2, 4096),
+    "medium": (4, 8192),
+    "large": (8, 16384),
+    "xl": (16, 32768),
+}
+"""Billable Docker Cloud Sandboxes shapes: name -> (vCPUs, MiB).
+
+Sizing must land exactly on one of these; ``--cpus``/``--memory`` defaults are
+2 vCPU / 4096 MiB (``small``).
+"""
+
+_CLOUD_DEFAULT_CPUS = 2
+_CLOUD_DEFAULT_MEMORY = "4g"
+
+_MEMORY_UNITS: dict[str, int] = {
+    "b": 1,
+    "k": 1024,
+    "kb": 1024,
+    "ki": 1024,
+    "kib": 1024,
+    "m": 1024**2,
+    "mb": 1024**2,
+    "mi": 1024**2,
+    "mib": 1024**2,
+    "g": 1024**3,
+    "gb": 1024**3,
+    "gi": 1024**3,
+    "gib": 1024**3,
+    "t": 1024**4,
+    "tb": 1024**4,
+    "ti": 1024**4,
+    "tib": 1024**4,
+}
+
+
+def parse_memory_mib(memory: str) -> int | None:
+    """Parse a binary memory string (``"4g"``, ``"8192MiB"``, ``"2048"``) to MiB.
+
+    Returns ``None`` when the value cannot be parsed.
+    """
+    text = memory.strip().lower()
+    if not text:
+        return None
+    index = len(text)
+    while index > 0 and (text[index - 1].isalpha()):
+        index -= 1
+    number, unit = text[:index], text[index:]
+    try:
+        value = float(number)
+    except ValueError:
+        return None
+    if not unit:
+        # A bare number is interpreted as MiB (shape sizes are MiB-based).
+        return int(value)
+    multiplier = _MEMORY_UNITS.get(unit)
+    if multiplier is None:
+        return None
+    return int(value * multiplier // (1024**2))
+
+
+def resolve_cloud_shape(cpus: int | None, memory: str | None) -> str:
+    """Map a ``(cpus, memory)`` pair onto a billable cloud shape name.
+
+    Missing values take the cloud defaults (2 vCPU / 4096 MiB), mirroring the
+    CLI.
+
+    Raises:
+        SbxShapeError: If the pair does not name a billable shape.
+    """
+    effective_cpus = _CLOUD_DEFAULT_CPUS if cpus is None else int(cpus)
+    effective_memory = _CLOUD_DEFAULT_MEMORY if memory is None else memory
+    memory_mib = parse_memory_mib(effective_memory)
+    if memory_mib is None:
+        raise SbxShapeError(f"Could not parse cloud memory value {memory!r}.")
+    for name, (shape_cpus, shape_mib) in CLOUD_SHAPES.items():
+        if shape_cpus == effective_cpus and shape_mib == memory_mib:
+            return name
+    options = ", ".join(f"{name} ({cpus_} vCPU/{mib} MiB)" for name, (cpus_, mib) in CLOUD_SHAPES.items())
+    raise SbxShapeError(
+        f"{effective_cpus} vCPU / {effective_memory} is not a billable cloud shape. Valid shapes: {options}."
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -274,6 +359,11 @@ def classify_failure(result: CommandResult) -> SbxError:
 class SbxTransport(ABC):
     """Abstract operations :class:`SbxSandbox` needs from Docker Sandboxes."""
 
+    cloud: bool = False
+    """Whether this transport targets Docker Cloud Sandboxes rather than a local
+    microVM. Subclasses set it; :class:`SbxSandbox` reads it to adapt messages
+    and to reject cloud-incompatible options (e.g. a host workspace)."""
+
     @abstractmethod
     def exec(
         self,
@@ -304,8 +394,13 @@ class SbxTransport(ABC):
         memory: str | None = None,
         profile: str | None = None,
         pull: str | None = None,
+        ttl: str | None = None,
+        on_timeout: str | None = None,
     ) -> CommandResult:
-        """Create a new sandbox."""
+        """Create a new sandbox.
+
+        ``ttl``/``on_timeout`` are cloud-only; ``workspace`` is local-only.
+        """
 
     @abstractmethod
     def remove(self, name: str, *, force: bool = True) -> CommandResult:
@@ -323,9 +418,27 @@ class SbxTransport(ABC):
         """Whether a sandbox with this name or stable id exists."""
         return any(name in (info.name, info.id) for info in self.list())
 
+    def ttl(self, name: str) -> Mapping[str, Any] | None:
+        """Return the cloud sandbox's TTL/expiration, or ``None`` if unsupported.
+
+        Cloud-only; the base implementation reports the transport as unsupported.
+        """
+        raise SbxError(f"{type(self).__name__} does not support TTL inspection.")
+
+    def extend_ttl(self, name: str, duration: str) -> Mapping[str, Any] | None:
+        """Extend a cloud sandbox's TTL by ``duration`` (e.g. ``"2h"``).
+
+        Cloud-only; the base implementation reports the transport as unsupported.
+        """
+        raise SbxError(f"{type(self).__name__} does not support TTL extension.")
+
 
 class CliSbxTransport(SbxTransport):
-    """Local transport that shells out to the ``sbx`` CLI.
+    """Transport that shells out to the ``sbx`` CLI.
+
+    Works for both local sandboxes and Docker Cloud Sandboxes: ``cloud=True``
+    injects the global ``--cloud`` flag, so every verb is dispatched to the
+    Cloud API instead of the local ``sandboxd``.
 
     Args:
         binary: Path or name of the CLI (default ``"sbx"``).
@@ -334,6 +447,8 @@ class CliSbxTransport(SbxTransport):
             long commands so the *remote* process dies too. The host-side kill is
             always active as a backstop. Set to ``False`` on images without
             coreutils ``timeout``.
+        cloud: Target Docker Cloud Sandboxes (``sbx --cloud …``). Cloud
+            sandboxes have no host workspace and bill per shape.
     """
 
     def __init__(
@@ -343,11 +458,17 @@ class CliSbxTransport(SbxTransport):
         env: Mapping[str, str] | None = None,
         remote_timeout: bool = True,
         remote_kill_after: float = 5.0,
+        cloud: bool = False,
     ) -> None:
         self.binary = binary
         self.env = dict(env or {})
         self.remote_timeout = remote_timeout
         self.remote_kill_after = remote_kill_after
+        self.cloud = cloud
+
+    @property
+    def _global_flags(self) -> list[str]:
+        return ["--cloud"] if self.cloud else []
 
     # -- internals ---------------------------------------------------------
 
@@ -359,7 +480,7 @@ class CliSbxTransport(SbxTransport):
         max_output_bytes: int = DEFAULT_MAX_OUTPUT_BYTES,
     ) -> CommandResult:
         return _run(
-            [self.binary, *args],
+            [self.binary, *self._global_flags, *args],
             timeout=timeout,
             max_output_bytes=max_output_bytes,
             env=self.env or None,
@@ -442,7 +563,19 @@ class CliSbxTransport(SbxTransport):
         memory: str | None = None,
         profile: str | None = None,
         pull: str | None = None,
+        ttl: str | None = None,
+        on_timeout: str | None = None,
     ) -> CommandResult:
+        if self.cloud:
+            return self._create_cloud(
+                name,
+                agent=agent,
+                workspace=workspace,
+                cpus=cpus,
+                memory=memory,
+                ttl=ttl,
+                on_timeout=on_timeout,
+            )
         args: list[str] = ["create", "--name", name]
         if cpus:
             args += ["--cpus", str(int(cpus))]
@@ -457,6 +590,39 @@ class CliSbxTransport(SbxTransport):
             args.append(workspace)
         return self._check(self._run(args))
 
+    def _create_cloud(
+        self,
+        name: str,
+        *,
+        agent: str,
+        workspace: str | None,
+        cpus: int | None,
+        memory: str | None,
+        ttl: str | None,
+        on_timeout: str | None,
+    ) -> CommandResult:
+        if workspace:
+            raise SbxError(
+                "Cloud sandboxes have no host workspace; omit 'workspace' "
+                "(download results with download_files() instead)."
+            )
+        shape = resolve_cloud_shape(cpus, memory)
+        args: list[str] = [
+            "create",
+            "--name",
+            name,
+            "--cpus",
+            str(CLOUD_SHAPES[shape][0]),
+            "--memory",
+            f"{CLOUD_SHAPES[shape][1]}m",
+        ]
+        if ttl:
+            args += ["--ttl", ttl]
+        if on_timeout:
+            args += ["--on-timeout", on_timeout]
+        args.append(agent)
+        return self._check(self._run(args))
+
     def remove(self, name: str, *, force: bool = True) -> CommandResult:
         args = ["rm"]
         if force:
@@ -469,6 +635,9 @@ class CliSbxTransport(SbxTransport):
         return parse_sandbox_list(result.output)
 
     def inspect(self, name: str) -> Mapping[str, Any] | None:
+        if self.cloud:
+            # `sbx inspect` is not implemented in --cloud mode (verified v0.45.1).
+            raise SbxError("'sbx inspect' is not supported in cloud mode; use list() for cloud sandbox metadata.")
         result = self._run(["inspect", name, "--json"])
         if not result.ok:
             error = classify_failure(result)
@@ -480,6 +649,35 @@ class CliSbxTransport(SbxTransport):
         except json.JSONDecodeError as exc:
             raise SbxCommandError(
                 f"Could not parse 'sbx inspect --json' output: {exc}",
+                argv=result.argv,
+                exit_code=result.exit_code,
+                output=result.output,
+            ) from exc
+        return data if isinstance(data, Mapping) else None
+
+    def ttl(self, name: str) -> Mapping[str, Any] | None:
+        if not self.cloud:
+            raise SbxError("TTL inspection is cloud-only; local sandboxes are not TTL-managed.")
+        result = self._check(self._run(["ttl", name, "--json"]))
+        return self._json_object(result)
+
+    def extend_ttl(self, name: str, duration: str) -> Mapping[str, Any] | None:
+        if not self.cloud:
+            raise SbxError("TTL extension is cloud-only; local sandboxes are not TTL-managed.")
+        value = duration if duration.startswith("+") else f"+{duration}"
+        result = self._check(self._run(["ttl", value, name, "--json"]))
+        return self._json_object(result)
+
+    @staticmethod
+    def _json_object(result: CommandResult) -> Mapping[str, Any] | None:
+        payload = result.output.strip()
+        if not payload:
+            return None
+        try:
+            data = json.loads(payload)
+        except json.JSONDecodeError as exc:
+            raise SbxCommandError(
+                f"Could not parse sbx JSON output: {exc}",
                 argv=result.argv,
                 exit_code=result.exit_code,
                 output=result.output,
@@ -529,11 +727,14 @@ def _optional_str(value: Any) -> str | None:
 
 
 __all__ = [
+    "CLOUD_SHAPES",
     "DEFAULT_MAX_OUTPUT_BYTES",
     "CliSbxTransport",
     "CommandResult",
     "SandboxInfo",
     "SbxTransport",
     "classify_failure",
+    "parse_memory_mib",
     "parse_sandbox_list",
+    "resolve_cloud_shape",
 ]

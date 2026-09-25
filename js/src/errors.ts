@@ -26,6 +26,9 @@ export class SbxPolicyError extends SbxError {}
 /** The named sandbox does not exist (or was removed concurrently). */
 export class SbxNotFoundError extends SbxError {}
 
+/** The requested cloud sandbox sizing does not name a billable shape. */
+export class SbxShapeError extends SbxError {}
+
 /** `sbx` exited non-zero for a command the transport could not interpret. */
 export class SbxCommandError extends SbxError {
   readonly argv: readonly string[];

@@ -84,6 +84,14 @@ export class LocalTransport implements SbxTransport {
   async exists(_name: string): Promise<boolean> {
     return false;
   }
+
+  async ttl(_sandbox: string): Promise<Record<string, unknown> | null> {
+    return null;
+  }
+
+  async extendTtl(_sandbox: string, _duration: string): Promise<Record<string, unknown> | null> {
+    return null;
+  }
 }
 
 /** Write a file directly on the host (helper for contract fixtures). */

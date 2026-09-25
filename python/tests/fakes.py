@@ -109,9 +109,20 @@ class SpyTransport(SbxTransport):
         memory: str | None = None,
         profile: str | None = None,
         pull: str | None = None,
+        ttl: str | None = None,
+        on_timeout: str | None = None,
     ) -> CommandResult:
         self._record(
-            "create", name, agent=agent, workspace=workspace, cpus=cpus, memory=memory, profile=profile, pull=pull
+            "create",
+            name,
+            agent=agent,
+            workspace=workspace,
+            cpus=cpus,
+            memory=memory,
+            profile=profile,
+            pull=pull,
+            ttl=ttl,
+            on_timeout=on_timeout,
         )
         return _ok()
 
@@ -193,6 +204,8 @@ class LocalTransport(SbxTransport):
         memory: str | None = None,
         profile: str | None = None,
         pull: str | None = None,
+        ttl: str | None = None,
+        on_timeout: str | None = None,
     ) -> CommandResult:
         return _ok()
 
