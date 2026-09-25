@@ -213,6 +213,31 @@ pytest -m integration  # real microVMs (needs sbx login + virtualization)
 Unit tests install an executable fake `sbx` shim first on `PATH` that records
 every argv and emits canned output.
 
+## Releasing
+
+Versions must match in `python/pyproject.toml` and `js/package.json`. Pushing a
+`vX.Y.Z` tag runs `.github/workflows/release.yml`, which verifies the tag against
+both versions, builds, and tests.
+
+Publishing is **opt-in**, so a tag is green by default:
+
+| Target | Enable with | Auth options |
+|---|---|---|
+| PyPI | repo variable `PUBLISH_PYPI=true` | PyPI trusted publisher, or `PYPI_TOKEN` secret |
+| npm | repo variable `PUBLISH_NPM=true` | npm trusted publishing, or `NPM_TOKEN` secret |
+
+```bash
+gh variable set PUBLISH_PYPI --repo restuhaqza/deepagents-sbx --body true
+gh variable set PUBLISH_NPM  --repo restuhaqza/deepagents-sbx --body true
+```
+
+Manual publish (how v0.1.0 shipped):
+
+```bash
+make publish-python   # uv build && uv publish
+make publish-js       # npm run build && npm publish --access public
+```
+
 ## Roadmap
 
 - [x] **M0** — transport spike; verified `python3` + coreutils `timeout` in the `shell` image

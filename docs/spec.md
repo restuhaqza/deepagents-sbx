@@ -159,6 +159,22 @@ workspace; `create` rejects one.
 | `CT-*` contract | no | `BaseSandbox` against a local-shell transport |
 | `IT-*` integration | yes | real microVM, `pytest -m integration` |
 
+## Release process
+
+`v0.1.0` shipped manually (PyPI via an API token, npm via a bypass-2FA granular
+token). `.github/workflows/release.yml` automates future releases and is
+**opt-in**:
+
+- PyPI publishing requires the repo variable `PUBLISH_PYPI=true` plus either a
+  PyPI trusted publisher or a `PYPI_TOKEN` secret. (Trusted publishing was not
+  configured for v0.1.0, so that job was deferred.)
+- npm publishing requires `PUBLISH_NPM=true` plus npm trusted publishing or an
+  `NPM_TOKEN` secret. `--provenance` is used.
+- With the variables unset, tag runs only verify the version and run the JS
+  tests/build, staying green.
+
+Versions must match in `python/pyproject.toml` and `js/package.json`.
+
 ## Milestones
 
 | # | Deliverable | Status |

@@ -1,5 +1,21 @@
 name: Release
 
+# Publishing is OPT-IN.
+#
+# A tag (`vX.Y.Z`) always runs the version check and, for npm, the full
+# test/build. Actual publishing only happens when explicitly enabled:
+#
+#   PyPI  -> repo variable  PUBLISH_PYPI = true
+#            (needs either a PyPI trusted publisher, or a PYPI_TOKEN secret)
+#   npm   -> repo variable  PUBLISH_NPM  = true
+#            (needs either npm trusted publishing, or an NPM_TOKEN secret)
+#
+# With the variables unset, tag runs stay green and only validate.
+#
+# Enable with:
+#   gh variable set PUBLISH_PYPI --repo restuhaqza/deepagents-sbx --body true
+#   gh variable set PUBLISH_NPM  --repo restuhaqza/deepagents-sbx --body true
+
 on:
   push:
     tags: ["v*"]
@@ -29,6 +45,8 @@ jobs:
   python:
     name: Publish to PyPI
     needs: verify-version
+    # Opt-in: skipped (neutral) until PUBLISH_PYPI is set to "true".
+    if: vars.PUBLISH_PYPI == 'true'
     runs-on: ubuntu-latest
     environment:
       name: pypi
@@ -93,7 +111,12 @@ jobs:
             echo "published=false" >> "$GITHUB_OUTPUT"
           fi
       - name: Publish to npm
-        if: steps.exists.outputs.published != 'true'
+        if: steps.exists.outputs.published != 'true' && (vars.PUBLISH_NPM == 'true' || env.NPM_TOKEN != '')
         # `--provenance` signs the attestation with the OIDC token. Auth is
         # either NPM_TOKEN (when set) or npm trusted publishing.
         run: npm publish --access public --provenance
+      - name: Publishing not enabled
+        if: steps.exists.outputs.published != 'true' && vars.PUBLISH_NPM != 'true' && env.NPM_TOKEN == ''
+        run: |
+          echo "::notice::deepagents-sbx@$(node -p "require('./package.json').version") is not on npm yet, but publishing is disabled."
+          echo "Set the repo variable PUBLISH_NPM=true (plus npm trusted publishing or the NPM_TOKEN secret) to enable it."
