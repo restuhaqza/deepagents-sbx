@@ -1,0 +1,78 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # Required for PyPI trusted publishing and npm provenance (OIDC).
+  id-token: write
+
+jobs:
+  verify-version:
+    name: Verify tag matches package versions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check versions line up
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          py=$(grep -m1 '^version = ' python/pyproject.toml | cut -d'"' -f2)
+          js=$(node -p "require('./js/package.json').version")
+          echo "tag=$tag python=$py js=$js"
+          test "$tag" = "$py" || { echo "::error::tag $tag != python version $py"; exit 1; }
+          test "$tag" = "$js" || { echo "::error::tag $tag != npm version $js"; exit 1; }
+
+  python:
+    name: Publish to PyPI
+    needs: verify-version
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/deepagents-sbx
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Build wheel + sdist
+        working-directory: python
+        run: uv build
+      - name: Publish to PyPI (trusted publishing)
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: python/dist
+
+  npm:
+    name: Publish to npm
+    needs: verify-version
+    runs-on: ubuntu-latest
+    environment:
+      name: npm
+      url: https://www.npmjs.com/package/deepagents-sbx
+    permissions:
+      id-token: write
+      contents: read
+    defaults:
+      run:
+        working-directory: js
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: https://registry.npmjs.org
+      - name: Install
+        run: npm ci
+      - name: Test
+        run: npm test
+      - name: Build
+        run: npm run build
+      - name: Publish to npm
+        # `--provenance` signs the attestation with the OIDC token. Auth uses
+        # NPM_TOKEN; switch to npm trusted publishing to drop the secret.
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

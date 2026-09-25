@@ -1,7 +1,7 @@
-.PHONY: help test lint fmt typecheck build integration clean
+.PHONY: help test lint fmt typecheck build integration clean publish-python publish-js
 
 help: ## Show this help
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
 
 test: ## Run Python unit + contract tests (no Docker)
 	cd python && .venv/bin/python -m pytest -q
@@ -18,8 +18,15 @@ fmt: ## Format Python
 typecheck: ## Type-check Python
 	cd python && .venv/bin/python -m mypy
 
-build: ## Build the Python wheel + sdist
+build: ## Build both packages
 	cd python && uv build
+	cd js && npm run build
+
+publish-python: ## Publish the Python package (needs PyPI credentials)
+	cd python && uv build && uv publish
+
+publish-js: ## Publish the npm package (needs `npm login`)
+	cd js && npm run build && npm publish --access public
 
 clean: ## Remove build/test artifacts
 	rm -rf python/dist python/build python/.venv js/dist js/node_modules
