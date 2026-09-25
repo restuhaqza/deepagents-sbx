@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Node
+node_modules/
+js/dist/
+*.tsbuildinfo
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Local sbx scratch
+.sbx/

@@ -1,0 +1,88 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "deepagents-sbx"
+version = "0.1.0"
+description = "Docker Sandboxes (sbx) microVM sandbox backend for Deep Agents"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "restuhaqza" }]
+keywords = [
+  "deepagents",
+  "docker-sandboxes",
+  "sbx",
+  "microvm",
+  "ai-agents",
+  "langchain",
+  "sandbox",
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = ["deepagents>=0.6"]
+
+[project.optional-dependencies]
+# Deep Agents Code provider (`dcode --sandbox sbx`).
+code = ["deepagents-code"]
+# Cloud Sandboxes REST client (phase 2).
+cloud = ["httpx"]
+dev = [
+  "deepagents-code",
+  "mypy>=1.11",
+  "pytest>=8",
+  "pytest-asyncio>=0.24",
+  "ruff>=0.7",
+]
+
+[project.entry-points."deepagents_code.sandbox_providers"]
+sbx = "deepagents_sbx.provider:SbxProvider"
+
+[project.urls]
+Homepage = "https://github.com/restuhaqza/deepagents-sbx"
+Repository = "https://github.com/restuhaqza/deepagents-sbx"
+Issues = "https://github.com/restuhaqza/deepagents-sbx/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/deepagents_sbx"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src", "tests", "README.md", "LICENSE"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "."]
+asyncio_mode = "auto"
+markers = [
+  "integration: requires a real `sbx` install, a login, and virtualization (opt-in)",
+]
+addopts = "-m 'not integration'"
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF", "PL", "S"]
+ignore = ["PLR0913", "S603", "S607"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106", "S108", "PLR2004", "RUF100"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unused_ignores = true
+ignore_missing_imports = true
+files = ["src"]
