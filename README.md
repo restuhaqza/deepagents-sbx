@@ -1,50 +1,94 @@
 # deepagents-sbx
 
-> Docker Sandboxes (`sbx`) microVM sandbox backend for [Deep Agents](https://github.com/langchain-ai/deepagents) — Python & JavaScript.
+> A Docker Sandboxes (`sbx`) microVM sandbox backend for [Deep Agents](https://github.com/langchain-ai/deepagents) — Python & JavaScript.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![PyPI](https://img.shields.io/pypi/v/deepagents-sbx.svg)](https://pypi.org/project/deepagents-sbx/)
 [![npm](https://img.shields.io/npm/v/deepagents-sbx.svg)](https://www.npmjs.com/package/deepagents-sbx)
 ![Status: alpha](https://img.shields.io/badge/status-alpha-orange)
 
-Deep Agents ships sandbox backends for LangSmith, Daytona, Modal, Runloop,
-Vercel, E2B and plain Docker — all of them ordinary containers. **None use the
-`sbx` microVM.** This project fills that gap.
+Give your Deep Agents agent a **real machine to work in**: every command runs
+inside an `sbx` microVM with its **own Linux kernel** and a **private Docker
+daemon** — on your laptop (free) or in Docker Cloud Sandboxes (paid). One
+`pip install` / `npm install`, no Dockerfile, no host pollution.
 
-## Why a microVM backend
+## What is this?
 
-| `sbx` advantage | Value for an agent |
+Deep Agents can run its tools in a *sandbox backend*. `deepagents-sbx` is one:
+it implements the Deep Agents `BaseSandbox` protocol on top of
+[Docker Sandboxes](https://docs.docker.com/ai/sandboxes/) (`sbx`), Docker's
+microVM-based sandbox.
+
+So when your agent writes and runs code, installs packages, or builds containers,
+it does that **inside a disposable microVM** — not on your host.
+
+| Stack | Install | Entry point |
+|---|---|---|
+| Python | `pip install deepagents-sbx` | `from deepagents_sbx import SbxSandbox` |
+| JavaScript | `npm install deepagents-sbx deepagents` | `import { SbxSandbox } from "deepagents-sbx"` |
+| Deep Agents Code | `pip install "deepagents-sbx[code]"` | `dcode --sandbox sbx` |
+
+## Why a microVM (and not just a container)?
+
+| Property | What it gives the agent |
 |---|---|
-| microVM with its own kernel | Hard isolation boundary — no container-kernel escape |
-| Private Docker daemon inside the VM | The agent can `docker build` / `docker run` (testcontainers, compose) |
-| Network allow/deny policy | Real egress control for arbitrary generated code |
-| Disposable | `sbx rm` when done — no leftover state |
-| Free and already installed | The `sbx` CLI drives it; no cloud subscription required for local sandboxes |
+| microVM with its own kernel | A hard isolation boundary — a kernel-level escape in the sandbox doesn't reach your host kernel |
+| Private Docker daemon inside the VM | The agent can `docker build` / `docker run` (testcontainers, compose, image builds) |
+| Network allow/deny policy | Real egress control for arbitrary, LLM-generated code |
+| Disposable | Remove it and it's gone — no leftover images, containers or state |
+| Free locally | The `sbx` CLI drives a local microVM; no metered compute (a Docker account is still required to sign in) |
 
-## Repository layout
+> Most Deep Agents sandbox backends (LangSmith, Daytona, Modal, Runloop, Vercel,
+> E2B, plain Docker) are ordinary containers. `deepagents-sbx` is the one that
+> runs inside an `sbx` microVM.
 
-```
-deepagents-sbx/
-├── python/     → publishes deepagents-sbx on PyPI
-│   ├── src/deepagents_sbx/{transport,backend,provider,errors}.py
-│   └── tests/{unit,contract,integration}
-├── js/         → publishes deepagents-sbx on npm
-└── docs/
-```
+## When to use it
 
-## Quickstart (Python)
+**Good fit**
 
-```bash
-pip install "deepagents-sbx[code]"     # or: pip install deepagents-sbx
-```
+- You run **LLM-generated or otherwise untrusted code** and want a hard boundary.
+- Your agent needs **Docker inside the sandbox** (image builds, compose, testcontainers).
+- You want **egress control** — allow PyPI/npm, deny everything else.
+- You want **reproducible, ephemeral** agent runs that don't touch your machine.
+- You want **local-first** (free) with an optional **cloud burst** for heavier jobs.
 
-Requires **Python 3.12+** (`deepagents-code`, used by the `dcode` provider,
-requires 3.12) and the free [`sbx` CLI](https://docs.docker.com/ai/sandboxes/),
-installed and signed in:
+**Probably not the right tool**
+
+- You need GPU compute (reach for a GPU cloud).
+- You want a long-lived shared dev box rather than disposable sandboxes.
+- You can't install Docker Sandboxes or don't have a Docker account.
+
+Full decision guide: [docs/concepts.md](docs/concepts.md).
+
+## Quickstart (60 seconds)
+
+**Requirements:** Python 3.12+ (`deepagents>=0.7.19`) or Node 20+ (`deepagents>=1`), plus the free `sbx` CLI.
+
+Prerequisites (once):
+
+1. **Install the `sbx` CLI** (it is not a `pip`/`npm` dependency). macOS:
+   `brew trust docker/tap && brew install docker/tap/sbx` · Ubuntu 24.04+:
+   `curl -fsSL https://get.docker.com | sudo SBX=1 sh` · Windows:
+   `winget install -h Docker.sbx`. See the
+   [install docs](https://docs.docker.com/ai/sandboxes/install/). Local sandboxes
+   also need hardware virtualization; **cloud does not**.
+2. **Sign in and initialize the local policy:**
 
 ```bash
 sbx login
-sbx policy init balanced        # one-time; required before the first sandbox starts
+sbx policy init balanced
+```
+
+Cloud uses the **same Docker account and `sbx login`**, but keeps **separate
+secrets and network policy** in cloud stores (`sbx --cloud secret set …`,
+`sbx --cloud policy …`) and needs an active Docker Agentic Platform subscription. Verify access
+with `sbx --cloud diagnose`, then initialize policy with
+`sbx --cloud policy init balanced`.
+
+**Python**
+
+```bash
+pip install "deepagents-sbx[code]"    # [code] also registers the dcode provider
 ```
 
 ```python
@@ -52,34 +96,11 @@ from deepagents import create_deep_agent
 from deepagents_sbx import SbxSandbox
 
 with SbxSandbox(memory="4g") as backend:          # creates the microVM, removes it on exit
-    agent = create_deep_agent(model="anthropic:...", backend=backend)
-    agent.invoke({"messages": [{"role": "user", "content": "Run the test suite"}]})
+    agent = create_deep_agent(model="anthropic:claude-sonnet-4-5", backend=backend)
+    agent.invoke({"messages": [{"role": "user", "content": "Create a Python CLI and run its tests"}]})
 ```
 
-Bind-mount a host project. `sbx` mounts it at the *same absolute path* inside
-the VM (virtiofs), and commands start there:
-
-```python
-with SbxSandbox(workspace="/path/to/project") as backend:
-    ...
-```
-
-Attach to an existing sandbox without creating one:
-
-```python
-backend = SbxSandbox.attach("my-sandbox")
-```
-
-### Deep Agents Code
-
-Installing the `code` extra registers the `sbx` provider via the
-`deepagents_code.sandbox_providers` entry point:
-
-```bash
-dcode --sandbox sbx
-```
-
-## Quickstart (JavaScript)
+**JavaScript**
 
 ```bash
 npm install deepagents-sbx deepagents
@@ -98,154 +119,64 @@ try {
 }
 ```
 
-The JS backend is pure POSIX — no `python3` needed inside the sandbox.
+**Deep Agents Code**
 
-## Cloud Sandboxes
+```bash
+dcode --sandbox sbx          # local microVM
+dcode --sandbox sbx-cloud    # Docker Cloud Sandboxes (paid)
+```
 
-Docker Cloud Sandboxes (paid) are supported through the same transport:
+## Cloud sandboxes
+
+Same API, `cloud=True`:
 
 ```python
 with SbxSandbox(cloud=True, cpus=1, memory="2g", ttl="10m") as backend:
-    ...
+    backend.execute("./heavy-job.sh > /home/agent/workspace/out.tar.gz 2>&1", timeout=1800)
+    artifacts = backend.download_files(["/home/agent/workspace/out.tar.gz"])
 ```
 
-```ts
-const backend = new SbxSandbox({ cloud: true, cpus: 1, memory: "2g", ttl: "10m" });
-```
+Cloud sandboxes are **billable**, have **no host bind-mount**, and are validated
+against billable shapes (`micro` … `xl`) *before* any API call. Always set a
+`ttl`. Details: [docs/usage.md § Cloud](docs/usage.md#cloud-sandboxes).
 
-- **No workspace.** Cloud sandboxes have no host bind mount; use `download_files()` to retrieve artifacts.
-- **Billable shapes.** Sizing must land on one of `micro` (1/2048 MiB), `small` (2/4096), `medium` (4/8192), `large` (8/16384), `xl` (16/32768). An invalid pair raises `SbxShapeError` *before* any API call. Defaults to `small`.
-- **TTL.** Pass `ttl="2h"` / `onTimeout="delete"|"stop"`, and read or extend it with `backend.ttl()` / `backend.extend_ttl("5m")`.
-- **Deep Agents Code:** the second provider `sbx-cloud` selects it — `dcode --sandbox sbx-cloud`.
+There's a runnable end-to-end playground for the cloud path:
+<https://github.com/restuhaqza/deepagents-sbx-playground>.
 
-## Architecture
+## Documentation
 
-```mermaid
-graph TB
-    subgraph Agent["deepagents (host)"]
-        A[Agent loop + tool calls]
-    end
-    subgraph Adapter["deepagents-sbx"]
-        B["SbxSandbox<br/>extends BaseSandbox"]
-        C["SbxTransport<br/>(abstraction)"]
-    end
-    subgraph SBX["Docker Sandboxes"]
-        D["sbx CLI / sandboxd"]
-        E["microVM (own kernel)<br/>+ private Docker daemon"]
-    end
-    A --> B --> C
-    C -->|"exec / cp / ls / rm"| D --> E
-```
-
-`SbxSandbox` implements only the four members `BaseSandbox` requires —
-`execute()`, `upload_files()`, `download_files()`, and `id`. Every other file
-operation (`read`, `write`, `edit`, `delete`, `ls`, `grep`, `glob`) is derived
-by the base class and funnelled through `execute()`.
-
-### Transport
-
-The transport is an interface so implementations stay swappable:
-
-| Transport | Environment | Status |
-|---|---|---|
-| `CliSbxTransport` — subprocess to the `sbx` CLI | local (free) | ✅ Python & JS |
-| `CliSbxTransport(cloud=True)` — `sbx --cloud …` | cloud (paid) | ✅ Python & JS |
-| Own REST client over the OpenAPI contract | cloud | optional alternative |
-| Official `@docker/sandboxes` TypeScript SDK | cloud, JS only | optional alternative |
-
-Cloud goes through the same CLI transport: `--cloud` is a global `sbx` flag, so
-create/exec/cp/rm/ls/ttl reuse the local code path (streaming, timeouts, error
-mapping) with no separate auth or REST client to maintain. The REST/SDK options
-stay open behind the same `SbxTransport` seam.
-
-The local CLI is the only *supported* interface for local sandboxes — Docker
-documents no local REST API. The official SDK is TypeScript-only, cloud-only,
-and experimental.
-
-## API mapping — BaseSandbox ↔ `sbx`
-
-| Backend need | `sbx` invocation |
+| Doc | What's in it |
 |---|---|
-| create | `sbx create --name <name> shell [PATH]` (`--cpus/--memory/--profile`) |
-| execute | `sbx exec <name> sh -c '<command>'` (auto-starts a stopped sandbox) |
-| upload | stage host temp file → `mkdir -p` → `sbx cp <tmp> <name>:<dest>` |
-| download | `sbx cp <name>:<src> <tmp>` → read bytes |
-| id | stable `id` from `sbx ls --json` (falls back to the name) |
-| delete | `sbx rm --force <name>` |
-| inspect | `sbx inspect <name> --json` |
+| [docs/index.md](docs/index.md) | Map of the docs — **start here** |
+| [docs/concepts.md](docs/concepts.md) | Mental model, microVM vs container, when (not) to use it |
+| [docs/use-cases.md](docs/use-cases.md) | Copy-paste recipes for common scenarios |
+| [docs/usage.md](docs/usage.md) | API reference: constructor, methods, cloud, errors, troubleshooting |
+| [docs/spec.md](docs/spec.md) | Implementation spec + verified findings (internal / contributor) |
 
-## Design decisions
+Package quickstarts (what appears on the registries):
+[Python](python/README.md) · [JavaScript](js/README.md).
 
-- **Commands are argv arrays**, never host-side concatenated shell strings. The
-  user command is wrapped in a single `sh -c` *inside* the sandbox.
-- **Output is streamed and killed at the cap** (`max_output_bytes`, default
-  512 KiB). It is never fully buffered and then trimmed — that pattern lets a
-  noisy process exhaust host memory.
-- **Timeouts kill the remote process.** `execute()` wraps the command in the
-  sandbox's coreutils `timeout`; the host process group is the backstop. A
-  timeout is reported to the caller as an `ExecuteResponse` with
-  `exit_code=None` so the agent loop survives; configuration errors (missing
-  CLI, missing login, uninitialized policy) raise instead.
-- **`python3` is required in the image (Python backend only).** `BaseSandbox`
-  runs `read`/`edit` through a server-side Python script. The built-in
-  `shell` image (Ubuntu, `docker/sandbox-templates:shell-docker`) ships
-  Python 3. The JS backend is pure POSIX and has no such requirement.
-- **Lifecycle is explicit.** The constructor creates the sandbox if missing;
-  `close()`/`remove()` delete it when `auto_remove` is set (default `True`).
-  (`remove()`, not `delete()` — `BaseSandbox` reserves `delete(file_path)` for
-  the file-deletion tool.)
+## How it works (short version)
 
-## Testing
+`SbxSandbox` implements the four members Deep Agents' `BaseSandbox` needs —
+`execute()`, `upload_files()`, `download_files()`, and `id`. Every other file
+operation (`read`, `write`, `edit`, `ls`, `grep`, `glob`, `delete`) is derived by
+the base class and routed through `execute()`.
 
-```bash
-cd python
-uv venv && uv pip install -e ".[dev]"
-pytest                 # unit + contract (fake sbx, no Docker, no login)
-pytest -m integration  # real microVMs (needs sbx login + virtualization)
-```
+It talks to Docker Sandboxes through the `sbx` CLI (the only *supported* local
+interface). Cloud uses the same transport: `--cloud` is a global flag, so
+create/exec/cp/rm/ttl share one code path. The transport sits behind a
+`SbxTransport` seam, so a REST client or the official `@docker/sandboxes` SDK can
+be dropped in later without touching `SbxSandbox`.
 
-| Level | Needs login? | Needs virtualization? | Purpose |
-|---|---|---|---|
-| Unit (`UT-*`) | no | no | transport, argv shape, errors, truncation, timeouts |
-| Contract (`CT-*`) | no | no | `BaseSandbox` conformance, run against a local-shell transport |
-| Integration (`IT-*`) | yes | yes | real microVM end-to-end (opt-in) |
+More: [docs/concepts.md](docs/concepts.md) and [docs/spec.md](docs/spec.md).
 
-Unit tests install an executable fake `sbx` shim first on `PATH` that records
-every argv and emits canned output.
+## Status
 
-## Releasing
-
-Versions must match in `python/pyproject.toml` and `js/package.json`. Pushing a
-`vX.Y.Z` tag runs `.github/workflows/release.yml`, which verifies the tag against
-both versions, builds, and tests.
-
-Publishing is **opt-in**, so a tag is green by default:
-
-| Target | Enable with | Auth options |
-|---|---|---|
-| PyPI | repo variable `PUBLISH_PYPI=true` | PyPI trusted publisher, or `PYPI_TOKEN` secret |
-| npm | repo variable `PUBLISH_NPM=true` | npm trusted publishing, or `NPM_TOKEN` secret |
-
-```bash
-gh variable set PUBLISH_PYPI --repo restuhaqza/deepagents-sbx --body true
-gh variable set PUBLISH_NPM  --repo restuhaqza/deepagents-sbx --body true
-```
-
-Manual publish (how v0.1.0 shipped):
-
-```bash
-make publish-python   # uv build && uv publish
-make publish-js       # npm run build && npm publish --access public
-```
-
-## Roadmap
-
-- [x] **M0** — transport spike; verified `python3` + coreutils `timeout` in the `shell` image
-- [x] **M1** — Python `SbxSandbox` + unit/contract tests
-- [x] **M2** — `SbxProvider` + `dcode` entry point
-- [x] **M3** — JavaScript `SbxSandbox` (`deepagents` JS `BaseSandbox`) + tests
-- [x] **M4** — published to PyPI + npm (v0.1.0)
-- [x] **M5** — Cloud transport (`sbx --cloud` via `CliSbxTransport(cloud=True)`, Python & JS)
+Alpha (`0.1.0`), published on
+[PyPI](https://pypi.org/project/deepagents-sbx/) and
+[npm](https://www.npmjs.com/package/deepagents-sbx). Milestones and the verified
+environment matrix live in [docs/spec.md](docs/spec.md#milestones).
 
 ## License
 
