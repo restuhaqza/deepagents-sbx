@@ -21,6 +21,7 @@ export interface SpyTransportOptions {
   uploadErrors?: (string | undefined)[];
   downloadErrors?: (string | undefined)[];
   downloadContents?: (Uint8Array | undefined)[];
+  createErrors?: (string | undefined)[];
   execError?: Error;
   cloud?: boolean;
 }
@@ -33,6 +34,7 @@ export class SpyTransport implements SbxTransport {
   private readonly uploadErrors: (string | undefined)[];
   private readonly downloadErrors: (string | undefined)[];
   private readonly downloadContents: (Uint8Array | undefined)[];
+  private readonly createErrors: (string | undefined)[];
   private readonly execError?: Error;
 
   constructor(options: SpyTransportOptions = {}) {
@@ -42,6 +44,7 @@ export class SpyTransport implements SbxTransport {
     this.uploadErrors = options.uploadErrors ?? [];
     this.downloadErrors = options.downloadErrors ?? [];
     this.downloadContents = options.downloadContents ?? [];
+    this.createErrors = options.createErrors ?? [];
     this.execError = options.execError;
   }
 
@@ -74,6 +77,8 @@ export class SpyTransport implements SbxTransport {
 
   async create(name: string, options: CreateOptions = {}): Promise<CommandResult> {
     this.calls.push({ method: "create", args: [name, options] });
+    const error = this.createErrors.shift();
+    if (error !== undefined) throw new SbxCommandError(error);
     return ok();
   }
 

@@ -159,7 +159,14 @@ export class SbxSandbox extends BaseSandbox {
   }
 
   private ensureReady(): Promise<void> {
-    this.ready ??= this.start();
+    if (this.ready === undefined) {
+      this.ready = this.start().catch((error: unknown) => {
+        // Never cache a failed bootstrap: a transient cause (CLI not yet
+        // installed, network blip) should be retryable on the next call.
+        this.ready = undefined;
+        throw error;
+      });
+    }
     return this.ready;
   }
 
@@ -288,6 +295,9 @@ export class SbxSandbox extends BaseSandbox {
    */
   async remove(): Promise<void> {
     if (this.removed) return;
+    // If bootstrap is in flight, let it finish first: removing before a pending
+    // create lands would 404, swallow it, and then leak the sandbox it creates.
+    await this.ready?.catch(() => undefined);
     try {
       await this.transport.remove(this.name, { force: true });
     } catch (error) {
