@@ -72,6 +72,26 @@ def test_CT_TR_02_download_partial_success() -> None:
     assert responses[1].error == "file_not_found"
 
 
+def test_download_rejects_a_file_over_the_cap() -> None:
+    transport = SpyTransport(download_contents=[b"x" * 32])
+    sandbox = _sandbox(transport, max_download_bytes=8)
+
+    responses = sandbox.download_files(["/big.bin"])
+
+    assert responses[0].content is None
+    assert responses[0].error == "file_too_large"
+
+
+def test_download_allows_a_file_at_the_cap() -> None:
+    transport = SpyTransport(download_contents=[b"x" * 8])
+    sandbox = _sandbox(transport, max_download_bytes=8)
+
+    responses = sandbox.download_files(["/ok.bin"])
+
+    assert responses[0].error is None
+    assert responses[0].content == b"x" * 8
+
+
 def test_upload_creates_parent_directory_first() -> None:
     transport = SpyTransport()
     sandbox = _sandbox(transport)

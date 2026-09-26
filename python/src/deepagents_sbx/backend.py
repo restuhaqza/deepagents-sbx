@@ -50,6 +50,9 @@ DEFAULT_WORKING_DIR: str = "/home/agent/workspace"
 DEFAULT_TIMEOUT: int = 120
 """Default per-command timeout in seconds."""
 
+DEFAULT_MAX_DOWNLOAD_BYTES: int = 50 * 1024 * 1024
+"""Default cap on a single downloaded file (50 MiB). ``None``/``<= 0`` disables."""
+
 _UPLOAD_MODE: int = 0o666
 """Permissions for staged uploads.
 
@@ -102,6 +105,9 @@ class SbxSandbox(BaseSandbox):
             :class:`~deepagents_sbx.transport.CliSbxTransport` (local CLI).
         timeout: Default command timeout in seconds. ``0``/``None`` disables it.
         max_output_bytes: Output cap; the subprocess is killed once reached.
+        max_download_bytes: Cap on a single downloaded file in bytes (default
+            50 MiB). A larger file fails with ``"file_too_large"`` instead of
+            being read into memory. ``None``/``<= 0`` disables the cap.
         auto_remove: When ``True`` (default) :meth:`close` deletes the sandbox.
         auto_create: When ``True`` (default) the sandbox is created on
             construction if it does not already exist.
@@ -128,6 +134,7 @@ class SbxSandbox(BaseSandbox):
         transport: SbxTransport | None = None,
         timeout: int | None = DEFAULT_TIMEOUT,
         max_output_bytes: int = DEFAULT_MAX_OUTPUT_BYTES,
+        max_download_bytes: int | None = DEFAULT_MAX_DOWNLOAD_BYTES,
         auto_remove: bool = True,
         auto_create: bool = True,
         pull: str | None = None,
@@ -151,6 +158,7 @@ class SbxSandbox(BaseSandbox):
         self.profile = profile
         self.timeout = timeout
         self.max_output_bytes = max_output_bytes
+        self.max_download_bytes = max_download_bytes
         self.auto_remove = auto_remove
         self.ttl_value = ttl
         self.on_timeout = on_timeout
@@ -284,6 +292,12 @@ class SbxSandbox(BaseSandbox):
                 with tempfile.NamedTemporaryFile(prefix="sbx-download-", delete=False) as fh:
                     tmp_path = fh.name
                 self._transport.download(self.name, path, tmp_path)
+                limit = self.max_download_bytes
+                if limit is not None and limit > 0 and os.path.getsize(tmp_path) > limit:
+                    # The contract's FileOperationError union has no size code;
+                    # a backend-specific string is allowed by the protocol.
+                    responses.append(FileDownloadResponse(path=path, content=None, error="file_too_large"))
+                    continue
                 with open(tmp_path, "rb") as fh:
                     content = fh.read()
                 responses.append(FileDownloadResponse(path=path, content=content, error=None))
@@ -347,4 +361,4 @@ class SbxSandbox(BaseSandbox):
         self.close()
 
 
-__all__ = ["DEFAULT_AGENT", "DEFAULT_TIMEOUT", "DEFAULT_WORKING_DIR", "SbxSandbox"]
+__all__ = ["DEFAULT_AGENT", "DEFAULT_MAX_DOWNLOAD_BYTES", "DEFAULT_TIMEOUT", "DEFAULT_WORKING_DIR", "SbxSandbox"]

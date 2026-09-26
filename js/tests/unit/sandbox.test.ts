@@ -67,6 +67,26 @@ describe("partial success", () => {
     expect(responses[1]?.error).toBe("file_not_found");
   });
 
+  it("rejects a download over the size cap", async () => {
+    const transport = new SpyTransport({ downloadContents: [new Uint8Array(32)] });
+    const backend = sandbox(transport, { maxDownloadBytes: 8 });
+
+    const responses = await backend.downloadFiles(["/big.bin"]);
+
+    expect(responses[0]?.content).toBeNull();
+    expect(responses[0]?.error).toBe("file_too_large");
+  });
+
+  it("allows a download exactly at the size cap", async () => {
+    const transport = new SpyTransport({ downloadContents: [new Uint8Array(8)] });
+    const backend = sandbox(transport, { maxDownloadBytes: 8 });
+
+    const responses = await backend.downloadFiles(["/ok.bin"]);
+
+    expect(responses[0]?.error).toBeNull();
+    expect(responses[0]?.content?.length).toBe(8);
+  });
+
   it("creates the parent directory before uploading", async () => {
     const transport = new SpyTransport();
     const backend = sandbox(transport);

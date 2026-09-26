@@ -36,7 +36,7 @@ export type {
   SbxTransport,
 } from "./transport.js";
 
-export { DEFAULT_AGENT, DEFAULT_TIMEOUT, DEFAULT_WORKING_DIR, SbxSandbox } from "./sandbox.js";
+export { DEFAULT_AGENT, DEFAULT_MAX_DOWNLOAD_BYTES, DEFAULT_TIMEOUT, DEFAULT_WORKING_DIR, SbxSandbox } from "./sandbox.js";
 export type { SbxSandboxOptions } from "./sandbox.js";
 
 export const VERSION = "0.1.0";

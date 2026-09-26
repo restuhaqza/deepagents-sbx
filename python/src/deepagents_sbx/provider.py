@@ -41,6 +41,7 @@ _SANDBOX_KEYS: frozenset[str] = frozenset(
         "profile",
         "timeout",
         "max_output_bytes",
+        "max_download_bytes",
         "auto_remove",
         "pull",
         "cloud",
