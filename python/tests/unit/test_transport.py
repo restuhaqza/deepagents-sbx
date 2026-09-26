@@ -132,6 +132,19 @@ def test_UT_EXEC_08_sub_second_timeout_rounds_up(fake_sbx: FakeSbx) -> None:
     assert fake_sbx.argvs()[-1] == ["exec", "s", "timeout", "-k", "5s", "1s", "sh", "-c", "sleep 600"]
 
 
+def test_UT_EXEC_09_control_plane_verbs_have_a_host_deadline(fake_sbx: FakeSbx) -> None:
+    # A stalled CLI must not block the caller forever. Control-plane verbs get a
+    # host-side deadline (`exec` has its own remote+host pair).
+    fake_sbx.configure(sleep=30)
+    transport = CliSbxTransport(binary="sbx", remote_timeout=False, control_timeout=0.3)
+
+    started = time.monotonic()
+    with pytest.raises(SbxTimeoutError):
+        transport.list()
+
+    assert time.monotonic() - started < 5
+
+
 # --------------------------------------------------------------------------- UT-ERR
 
 

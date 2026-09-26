@@ -247,6 +247,12 @@ export interface CliSbxTransportOptions {
   remoteTimeout?: boolean;
   /** Seconds the sandbox-side `timeout` waits after SIGTERM before SIGKILL. */
   remoteKillAfter?: number;
+  /**
+   * Host-side deadline in seconds for control-plane verbs (`create`, `rm`, `ls`,
+   * `inspect`, `cp`, `ttl`). Defaults to 120. `0` disables it. Does not apply to
+   * `exec`, which has its own per-command timeout.
+   */
+  controlTimeout?: number;
   /** Target Docker Cloud Sandboxes (`sbx --cloud …`) instead of local `sandboxd`. */
   cloud?: boolean;
 }
@@ -273,6 +279,11 @@ export class CliSbxTransport implements SbxTransport {
 
   private get remoteKillAfter(): number {
     return Math.max(1, this.options.remoteKillAfter ?? 5);
+  }
+
+  private get controlTimeout(): number | undefined {
+    const value = this.options.controlTimeout ?? 120;
+    return value > 0 ? value : undefined;
   }
 
   private globalFlags(): string[] {
@@ -463,11 +474,11 @@ export class CliSbxTransport implements SbxTransport {
   }
 
   async upload(sandbox: string, localPath: string, remotePath: string): Promise<CommandResult> {
-    return this.check(await this.run(["cp", localPath, `${sandbox}:${remotePath}`], {}));
+    return this.check(await this.run(["cp", localPath, `${sandbox}:${remotePath}`], { timeout: this.controlTimeout }));
   }
 
   async download(sandbox: string, remotePath: string, localPath: string): Promise<CommandResult> {
-    return this.check(await this.run(["cp", `${sandbox}:${remotePath}`, localPath], {}));
+    return this.check(await this.run(["cp", `${sandbox}:${remotePath}`, localPath], { timeout: this.controlTimeout }));
   }
 
   async create(name: string, options: CreateOptions = {}): Promise<CommandResult> {
@@ -479,7 +490,7 @@ export class CliSbxTransport implements SbxTransport {
     if (options.pull) args.push("--pull", options.pull);
     args.push(options.agent ?? "shell");
     if (options.workspace) args.push(options.workspace);
-    return this.check(await this.run(args, {}));
+    return this.check(await this.run(args, { timeout: this.controlTimeout }));
   }
 
   private async createCloud(name: string, options: CreateOptions): Promise<CommandResult> {
@@ -495,18 +506,18 @@ export class CliSbxTransport implements SbxTransport {
     if (options.ttl) args.push("--ttl", options.ttl);
     if (options.onTimeout) args.push("--on-timeout", options.onTimeout);
     args.push(options.agent ?? "shell");
-    return this.check(await this.run(args, {}));
+    return this.check(await this.run(args, { timeout: this.controlTimeout }));
   }
 
   async remove(name: string, options: RemoveOptions = {}): Promise<CommandResult> {
     const args = ["rm"];
     if (options.force ?? true) args.push("--force");
     args.push(name);
-    return this.check(await this.run(args, {}));
+    return this.check(await this.run(args, { timeout: this.controlTimeout }));
   }
 
   async list(): Promise<SandboxInfo[]> {
-    const result = await this.check(await this.run(["ls", "--json"], {}));
+    const result = await this.check(await this.run(["ls", "--json"], { timeout: this.controlTimeout }));
     return parseSandboxList(result.output);
   }
 
@@ -514,7 +525,7 @@ export class CliSbxTransport implements SbxTransport {
     if (this.cloud) {
       throw new SbxError("'sbx inspect' is not supported in cloud mode; use list() for cloud sandbox metadata.");
     }
-    const result = await this.run(["inspect", name, "--json"], {});
+    const result = await this.run(["inspect", name, "--json"], { timeout: this.controlTimeout });
     if (result.exitCode !== 0) {
       const error = classifyFailure(result);
       if (error instanceof SbxNotFoundError) return null;
@@ -530,13 +541,15 @@ export class CliSbxTransport implements SbxTransport {
 
   async ttl(sandbox: string): Promise<Record<string, unknown> | null> {
     if (!this.cloud) throw new SbxError("TTL inspection is cloud-only; local sandboxes are not TTL-managed.");
-    return parseJsonObject(await this.check(await this.run(["ttl", sandbox, "--json"], {})));
+    return parseJsonObject(await this.check(await this.run(["ttl", sandbox, "--json"], { timeout: this.controlTimeout })));
   }
 
   async extendTtl(sandbox: string, duration: string): Promise<Record<string, unknown> | null> {
     if (!this.cloud) throw new SbxError("TTL extension is cloud-only; local sandboxes are not TTL-managed.");
     const value = duration.startsWith("+") ? duration : `+${duration}`;
-    return parseJsonObject(await this.check(await this.run(["ttl", value, sandbox, "--json"], {})));
+    return parseJsonObject(
+      await this.check(await this.run(["ttl", value, sandbox, "--json"], { timeout: this.controlTimeout })),
+    );
   }
 }
 

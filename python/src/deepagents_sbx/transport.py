@@ -448,6 +448,10 @@ class CliSbxTransport(SbxTransport):
             long commands so the *remote* process dies too. The host-side kill is
             always active as a backstop. Set to ``False`` on images without
             coreutils ``timeout``.
+        control_timeout: Host-side deadline in seconds for control-plane verbs
+            (``create``/``rm``/``ls``/``inspect``/``cp``/``ttl``). ``None`` or a
+            non-positive value disables it. Guards against a stalled CLI blocking
+            the caller forever; does not apply to ``exec`` (which has its own).
         cloud: Target Docker Cloud Sandboxes (``sbx --cloud …``). Cloud
             sandboxes have no host workspace and bill per shape.
     """
@@ -459,13 +463,21 @@ class CliSbxTransport(SbxTransport):
         env: Mapping[str, str] | None = None,
         remote_timeout: bool = True,
         remote_kill_after: float = 5.0,
+        control_timeout: float | None = 120.0,
         cloud: bool = False,
     ) -> None:
         self.binary = binary
         self.env = dict(env or {})
         self.remote_timeout = remote_timeout
         self.remote_kill_after = remote_kill_after
+        self.control_timeout = control_timeout
         self.cloud = cloud
+
+    @property
+    def _control_deadline(self) -> float | None:
+        """``control_timeout`` normalized to ``None`` when disabled."""
+        value = self.control_timeout
+        return value if value is not None and value > 0 else None
 
     @property
     def _global_flags(self) -> list[str]:
@@ -553,10 +565,10 @@ class CliSbxTransport(SbxTransport):
         return result
 
     def upload(self, sandbox: str, local_path: str, remote_path: str) -> CommandResult:
-        return self._check(self._run(["cp", local_path, f"{sandbox}:{remote_path}"]))
+        return self._check(self._run(["cp", local_path, f"{sandbox}:{remote_path}"], timeout=self._control_deadline))
 
     def download(self, sandbox: str, remote_path: str, local_path: str) -> CommandResult:
-        return self._check(self._run(["cp", f"{sandbox}:{remote_path}", local_path]))
+        return self._check(self._run(["cp", f"{sandbox}:{remote_path}", local_path], timeout=self._control_deadline))
 
     def create(
         self,
@@ -593,7 +605,7 @@ class CliSbxTransport(SbxTransport):
         args.append(agent)
         if workspace:
             args.append(workspace)
-        return self._check(self._run(args))
+        return self._check(self._run(args, timeout=self._control_deadline))
 
     def _create_cloud(
         self,
@@ -626,24 +638,24 @@ class CliSbxTransport(SbxTransport):
         if on_timeout:
             args += ["--on-timeout", on_timeout]
         args.append(agent)
-        return self._check(self._run(args))
+        return self._check(self._run(args, timeout=self._control_deadline))
 
     def remove(self, name: str, *, force: bool = True) -> CommandResult:
         args = ["rm"]
         if force:
             args.append("--force")
         args.append(name)
-        return self._check(self._run(args))
+        return self._check(self._run(args, timeout=self._control_deadline))
 
     def list(self) -> list[SandboxInfo]:
-        result = self._check(self._run(["ls", "--json"]))
+        result = self._check(self._run(["ls", "--json"], timeout=self._control_deadline))
         return parse_sandbox_list(result.output)
 
     def inspect(self, name: str) -> Mapping[str, Any] | None:
         if self.cloud:
             # `sbx inspect` is not implemented in --cloud mode (verified v0.45.1).
             raise SbxError("'sbx inspect' is not supported in cloud mode; use list() for cloud sandbox metadata.")
-        result = self._run(["inspect", name, "--json"])
+        result = self._run(["inspect", name, "--json"], timeout=self._control_deadline)
         if not result.ok:
             error = classify_failure(result)
             if isinstance(error, SbxNotFoundError):
@@ -663,14 +675,14 @@ class CliSbxTransport(SbxTransport):
     def ttl(self, name: str) -> Mapping[str, Any] | None:
         if not self.cloud:
             raise SbxError("TTL inspection is cloud-only; local sandboxes are not TTL-managed.")
-        result = self._check(self._run(["ttl", name, "--json"]))
+        result = self._check(self._run(["ttl", name, "--json"], timeout=self._control_deadline))
         return self._json_object(result)
 
     def extend_ttl(self, name: str, duration: str) -> Mapping[str, Any] | None:
         if not self.cloud:
             raise SbxError("TTL extension is cloud-only; local sandboxes are not TTL-managed.")
         value = duration if duration.startswith("+") else f"+{duration}"
-        result = self._check(self._run(["ttl", value, name, "--json"]))
+        result = self._check(self._run(["ttl", value, name, "--json"], timeout=self._control_deadline))
         return self._json_object(result)
 
     @staticmethod

@@ -132,6 +132,16 @@ describe("UT-EXEC", () => {
 
     expect(Date.now() - started).toBeLessThan(3000);
   });
+
+  it("UT-EXEC-11 control-plane verbs get a host deadline", async () => {
+    // A stalled CLI must not block the caller forever.
+    fake.configure({ sleep: 30 });
+    const transport = new CliSbxTransport("sbx", { remoteTimeout: false, controlTimeout: 0.3 });
+
+    const started = Date.now();
+    await expect(transport.list()).rejects.toBeInstanceOf(SbxTimeoutError);
+    expect(Date.now() - started).toBeLessThan(3000);
+  });
 });
 
 describe("UT-ERR", () => {
