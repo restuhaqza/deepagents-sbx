@@ -12,6 +12,7 @@ import pytest
 
 from deepagents_sbx.errors import (
     SbxAuthError,
+    SbxCommandError,
     SbxNotFoundError,
     SbxNotInstalledError,
     SbxPolicyError,
@@ -34,6 +35,14 @@ def test_UT_CMD_01_command_is_an_argv_array(fake_sbx: FakeSbx) -> None:
     _cli().exec("sandbox-1", "ls -la && rm -rf x", timeout=None)
 
     assert fake_sbx.argvs()[-1] == ["exec", "sandbox-1", "sh", "-c", "ls -la && rm -rf x"]
+
+
+def test_UT_CMD_03_list_parses_payload_larger_than_default_cap(fake_sbx: FakeSbx) -> None:
+    # 600 KB of valid JSON exceeds the 512 KB default cap; a truncated payload
+    # would be unparseable, so control-plane verbs get a wider cap.
+    fake_sbx.configure(pad_kb=600)
+
+    assert _cli().list() == []
 
 
 def test_UT_CMD_02_metacharacters_survive_byte_for_byte(fake_sbx: FakeSbx) -> None:
@@ -180,6 +189,17 @@ def test_UT_ERR_03_missing_binary_raises_clear_error(tmp_path, monkeypatch) -> N
 
     assert "sbx" in str(excinfo.value)
     assert "PATH" in str(excinfo.value)
+
+
+def test_UT_ERR_04_generic_not_found_stays_a_command_error(fake_sbx: FakeSbx) -> None:
+    # Only sandbox-specific phrasing maps to SbxNotFoundError; a bare "not found"
+    # in ordinary output must not.
+    fake_sbx.configure(stdout="grep: pattern not found\n", code=1)
+
+    with pytest.raises(SbxCommandError) as excinfo:
+        _cli().remove("nope")
+
+    assert not isinstance(excinfo.value, SbxNotFoundError)
 
 
 # --------------------------------------------------------------------------- UT-CP

@@ -1,5 +1,8 @@
 /** Backend unit tests: path safety, partial success, timeouts, lifecycle. */
 
+import { existsSync } from "node:fs";
+import { dirname } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import { SbxCommandError, SbxTimeoutError } from "../../src/errors.js";
@@ -39,7 +42,7 @@ describe("path safety", () => {
 });
 
 describe("partial success", () => {
-  it("CT-TR-01 upload partial success", async () => {
+  it("UT-TR-01 upload partial success", async () => {
     const transport = new SpyTransport({ uploadErrors: [undefined, "permission denied"] });
     const backend = sandbox(transport);
 
@@ -52,7 +55,7 @@ describe("partial success", () => {
     expect(responses[1]?.error).toBe("permission_denied");
   });
 
-  it("CT-TR-02 download partial success", async () => {
+  it("UT-TR-02 download partial success", async () => {
     const transport = new SpyTransport({
       downloadErrors: [undefined, "no such file"],
       downloadContents: [new Uint8Array([1, 2, 3])],
@@ -162,6 +165,19 @@ describe("lifecycle", () => {
     await sandbox(transport, { autoRemove: true }).close();
 
     expect(transport.methods("remove")).toHaveLength(1);
+  });
+
+  it("close drops the staging dir even when autoRemove=false", async () => {
+    const transport = new SpyTransport();
+    const backend = sandbox(transport, { autoRemove: false });
+    await backend.uploadFiles([["/a.txt", new Uint8Array([1])]]);
+
+    const staged = String(transport.methods("upload")[0]?.args[1]);
+    const dir = dirname(staged);
+    expect(existsSync(dir)).toBe(true);
+
+    await backend.close();
+    expect(existsSync(dir)).toBe(false);
   });
 });
 

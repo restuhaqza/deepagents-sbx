@@ -25,6 +25,12 @@ import {
 } from "./errors.js";
 
 export const DEFAULT_MAX_OUTPUT_BYTES = 512_000;
+/**
+ * Output cap for control-plane JSON (`ls` / `inspect`). The default 512 KB cap
+ * can truncate a very large sandbox listing, and a truncated JSON payload is
+ * unparseable.
+ */
+export const CONTROL_MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
 /** Exit status reported by coreutils `timeout(1)` when it kills a command. */
 const TIMEOUT_EXIT_CODE = 124;
 /**
@@ -174,7 +180,9 @@ const AUTH_MARKERS = [
 
 const POLICY_MARKERS = ["global network policy has not been initialized", "sbx policy init"];
 
-const NOT_FOUND_MARKERS = ["no such sandbox", "sandbox not found", "no sandbox named", "does not exist", "not found"];
+const NOT_FOUND_MARKERS = ["no such sandbox", "sandbox not found", "no sandbox named", "does not exist"];
+// No bare "not found": ordinary command output (e.g. "grep: pattern not found")
+// contains it, which turned unrelated failures into SbxNotFoundError.
 
 const LOGIN_HINT = "Run 'sbx login' first.";
 const POLICY_HINT = "Run 'sbx policy init <allow-all|balanced|deny-all>' first.";
@@ -517,7 +525,9 @@ export class CliSbxTransport implements SbxTransport {
   }
 
   async list(): Promise<SandboxInfo[]> {
-    const result = await this.check(await this.run(["ls", "--json"], { timeout: this.controlTimeout }));
+    const result = await this.check(
+      await this.run(["ls", "--json"], { timeout: this.controlTimeout, maxOutputBytes: CONTROL_MAX_OUTPUT_BYTES }),
+    );
     return parseSandboxList(result.output);
   }
 
@@ -525,7 +535,10 @@ export class CliSbxTransport implements SbxTransport {
     if (this.cloud) {
       throw new SbxError("'sbx inspect' is not supported in cloud mode; use list() for cloud sandbox metadata.");
     }
-    const result = await this.run(["inspect", name, "--json"], { timeout: this.controlTimeout });
+    const result = await this.run(["inspect", name, "--json"], {
+      timeout: this.controlTimeout,
+      maxOutputBytes: CONTROL_MAX_OUTPUT_BYTES,
+    });
     if (result.exitCode !== 0) {
       const error = classifyFailure(result);
       if (error instanceof SbxNotFoundError) return null;

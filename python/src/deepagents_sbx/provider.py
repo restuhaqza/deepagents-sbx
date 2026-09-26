@@ -34,6 +34,7 @@ BACKEND_MODULE: str = "deepagents_sbx.backend"
 
 _SANDBOX_KEYS: frozenset[str] = frozenset(
     {
+        "name",
         "agent",
         "workspace",
         "cpus",
@@ -84,6 +85,9 @@ class SbxProvider(SandboxProvider):
         params = {key: value for key, value in kwargs.items() if key in _SANDBOX_KEYS}
 
         if sandbox_id:
+            # The id identifies the sandbox; a configured `name` would conflict
+            # with the attach signature, so it is dropped here.
+            params.pop("name", None)
             return SbxSandbox.attach(sandbox_id, **params)
         return SbxSandbox(**params)
 

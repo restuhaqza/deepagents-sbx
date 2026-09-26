@@ -20,6 +20,7 @@ export {
 export {
   CLOUD_SHAPES,
   CliSbxTransport,
+  CONTROL_MAX_OUTPUT_BYTES,
   DEFAULT_MAX_OUTPUT_BYTES,
   classifyFailure,
   parseMemoryMib,

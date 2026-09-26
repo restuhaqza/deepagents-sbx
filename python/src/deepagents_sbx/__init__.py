@@ -27,6 +27,7 @@ from .errors import (
 )
 from .transport import (
     CLOUD_SHAPES,
+    CONTROL_MAX_OUTPUT_BYTES,
     DEFAULT_MAX_OUTPUT_BYTES,
     CliSbxTransport,
     CommandResult,
@@ -42,6 +43,7 @@ __version__ = "0.1.0"
 
 __all__ = [
     "CLOUD_SHAPES",
+    "CONTROL_MAX_OUTPUT_BYTES",
     "DEFAULT_AGENT",
     "DEFAULT_MAX_DOWNLOAD_BYTES",
     "DEFAULT_MAX_OUTPUT_BYTES",

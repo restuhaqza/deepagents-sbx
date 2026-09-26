@@ -327,9 +327,13 @@ export class SbxSandbox extends BaseSandbox {
     await this.cleanupTempDir();
   }
 
-  /** Delete the sandbox when `autoRemove` is set. */
+  /** Delete the sandbox when `autoRemove` is set; always drop staging files. */
   async close(): Promise<void> {
-    if (this.autoRemove) await this.remove();
+    if (this.autoRemove) {
+      await this.remove(); // also drops the staging dir
+      return;
+    }
+    await this.cleanupTempDir();
   }
 
   private async cleanupTempDir(): Promise<void> {

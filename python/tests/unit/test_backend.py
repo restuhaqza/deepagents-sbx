@@ -47,7 +47,7 @@ def test_UT_CP_03b_download_rejects_unsafe_paths() -> None:
 # -------------------------------------------------------------------- partial success
 
 
-def test_CT_TR_01_upload_partial_success() -> None:
+def test_UT_TR_01_upload_partial_success() -> None:
     transport = SpyTransport(upload_errors=[None, "permission denied"])
     sandbox = _sandbox(transport)
 
@@ -57,7 +57,7 @@ def test_CT_TR_01_upload_partial_success() -> None:
     assert responses[1].error == "permission_denied"
 
 
-def test_CT_TR_02_download_partial_success() -> None:
+def test_UT_TR_02_download_partial_success() -> None:
     transport = SpyTransport(
         download_errors=[None, "no such file"],
         download_contents=[b"data"],

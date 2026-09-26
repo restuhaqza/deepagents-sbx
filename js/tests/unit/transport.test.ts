@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   SbxAuthError,
+  SbxCommandError,
   SbxNotFoundError,
   SbxNotInstalledError,
   SbxPolicyError,
@@ -142,6 +143,11 @@ describe("UT-EXEC", () => {
     await expect(transport.list()).rejects.toBeInstanceOf(SbxTimeoutError);
     expect(Date.now() - started).toBeLessThan(3000);
   });
+
+  it("UT-EXEC-12 parses a listing larger than the default cap", async () => {
+    fake.configure({ padKb: 600 });
+    expect(await cli().list()).toEqual([]);
+  });
 });
 
 describe("UT-ERR", () => {
@@ -164,6 +170,11 @@ describe("UT-ERR", () => {
   it("UT-ERR-04 raises SbxNotInstalledError for a missing binary", async () => {
     const transport = new CliSbxTransport("definitely-not-a-real-sbx-binary");
     await expect(transport.list()).rejects.toBeInstanceOf(SbxNotInstalledError);
+  });
+
+  it("UT-ERR-05 keeps a generic 'not found' as a command error", async () => {
+    fake.configure({ stdout: "grep: pattern not found\n", code: 1 });
+    await expect(cli().remove("nope")).rejects.toBeInstanceOf(SbxCommandError);
   });
 });
 

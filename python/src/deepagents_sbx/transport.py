@@ -53,6 +53,13 @@ from .errors import (
 DEFAULT_MAX_OUTPUT_BYTES: int = 512_000
 """Default cap on captured command output, mirroring the Python backend's cap."""
 
+CONTROL_MAX_OUTPUT_BYTES: int = 8 * 1024 * 1024
+"""Output cap for control-plane JSON (``ls`` / ``inspect``).
+
+The default 512 KB cap can truncate a very large sandbox listing, and a
+truncated JSON payload is unparseable, so control responses get a wider cap.
+"""
+
 _READ_CHUNK: int = 64 * 1024
 _KILL_GRACE_SECONDS: float = 5.0
 _BINARY: str = "sbx"
@@ -82,8 +89,13 @@ _NOT_FOUND_MARKERS: tuple[str, ...] = (
     "sandbox not found",
     "no sandbox named",
     "does not exist",
-    "not found",
 )
+"""Phrases that mean *the sandbox* is missing.
+
+A bare ``"not found"`` is deliberately absent: ordinary command output (e.g.
+``grep: pattern not found``) contains it, and matching it turned unrelated
+failures into :class:`SbxNotFoundError`.
+"""
 
 _LOGIN_HINT = "Run 'sbx login' first."
 _POLICY_HINT = "Run 'sbx policy init <allow-all|balanced|deny-all>' first."
@@ -159,7 +171,11 @@ def resolve_cloud_shape(cpus: int | None, memory: str | None) -> str:
     Raises:
         SbxShapeError: If the pair does not name a billable shape.
     """
-    effective_cpus = _CLOUD_DEFAULT_CPUS if cpus is None else int(cpus)
+    effective_cpus = _CLOUD_DEFAULT_CPUS if cpus is None else cpus
+    try:
+        effective_cpus = int(effective_cpus)
+    except (TypeError, ValueError) as exc:
+        raise SbxShapeError(f"Could not parse cloud cpus value {cpus!r}.") from exc
     effective_memory = _CLOUD_DEFAULT_MEMORY if memory is None else memory
     memory_mib = parse_memory_mib(effective_memory)
     if memory_mib is None:
@@ -648,14 +664,20 @@ class CliSbxTransport(SbxTransport):
         return self._check(self._run(args, timeout=self._control_deadline))
 
     def list(self) -> list[SandboxInfo]:
-        result = self._check(self._run(["ls", "--json"], timeout=self._control_deadline))
+        result = self._check(
+            self._run(["ls", "--json"], timeout=self._control_deadline, max_output_bytes=CONTROL_MAX_OUTPUT_BYTES)
+        )
         return parse_sandbox_list(result.output)
 
     def inspect(self, name: str) -> Mapping[str, Any] | None:
         if self.cloud:
             # `sbx inspect` is not implemented in --cloud mode (verified v0.45.1).
             raise SbxError("'sbx inspect' is not supported in cloud mode; use list() for cloud sandbox metadata.")
-        result = self._run(["inspect", name, "--json"], timeout=self._control_deadline)
+        result = self._run(
+            ["inspect", name, "--json"],
+            timeout=self._control_deadline,
+            max_output_bytes=CONTROL_MAX_OUTPUT_BYTES,
+        )
         if not result.ok:
             error = classify_failure(result)
             if isinstance(error, SbxNotFoundError):
@@ -745,6 +767,7 @@ def _optional_str(value: Any) -> str | None:
 
 __all__ = [
     "CLOUD_SHAPES",
+    "CONTROL_MAX_OUTPUT_BYTES",
     "DEFAULT_MAX_OUTPUT_BYTES",
     "CliSbxTransport",
     "CommandResult",

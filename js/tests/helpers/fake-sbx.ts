@@ -40,6 +40,14 @@ if (streamMb) {
   process.exit(Number(process.env.FAKE_SBX_CODE || "0"));
 }
 
+const padKb = process.env.FAKE_SBX_PAD_KB;
+if (padKb) {
+  // A valid JSON payload larger than the default output cap, for exercising the
+  // wider control-plane cap on \`ls --json\`.
+  fs.writeSync(1, '{"sandboxes": [], "pad": "' + "x".repeat(Number(padKb) * 1024) + '"}');
+  process.exit(Number(process.env.FAKE_SBX_CODE || "0"));
+}
+
 const stdout = process.env.FAKE_SBX_STDOUT || "";
 const stderr = process.env.FAKE_SBX_STDERR || "";
 if (stdout) fs.writeSync(1, stdout);
@@ -55,6 +63,8 @@ export interface FakeSbxConfig {
   streamMb?: number;
   /** Fork a grandchild that holds stdout/stderr open for this many ms. */
   holdMs?: number;
+  /** Emit a JSON payload padded to this many KB (for the control output cap). */
+  padKb?: number;
 }
 
 export class FakeSbx {
@@ -84,6 +94,7 @@ export class FakeSbx {
     set("FAKE_SBX_SLEEP", config.sleep === undefined ? undefined : String(config.sleep));
     set("FAKE_SBX_STREAM_MB", config.streamMb === undefined ? undefined : String(config.streamMb));
     set("FAKE_SBX_HOLD_MS", config.holdMs === undefined ? undefined : String(config.holdMs));
+    set("FAKE_SBX_PAD_KB", config.padKb === undefined ? undefined : String(config.padKb));
   }
 
   argvs(): string[][] {
