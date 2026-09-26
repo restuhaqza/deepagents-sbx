@@ -105,6 +105,10 @@ describe("UT-CLOUD helpers", () => {
     expect(parseMemoryMib("2048")).toBe(2048);
     expect(parseMemoryMib("2GiB")).toBe(2048);
     expect(parseMemoryMib("nonsense")).toBeNull();
+    // Unit-only values must not silently parse as 0 MiB (Number("") === 0).
+    expect(parseMemoryMib("m")).toBeNull();
+    expect(parseMemoryMib("MiB")).toBeNull();
+    expect(parseMemoryMib("")).toBeNull();
   });
 
   it("UT-CLOUD-09b resolveCloudShape", () => {

@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import math
 import os
 import shutil
 import signal
@@ -501,7 +502,11 @@ class CliSbxTransport(SbxTransport):
         if not self.remote_timeout or timeout is None or timeout <= 0:
             return []
         kill_after = max(1.0, float(self.remote_kill_after))
-        return ["timeout", "-k", f"{kill_after:g}s", f"{int(timeout)}s"]
+        # ``timeout(1)`` treats a zero duration as *disabled*, so a sub-second
+        # deadline must round up to at least one second or the sandbox-side kill
+        # becomes a no-op (the host backstop would then be the only guard).
+        seconds = max(1, math.ceil(timeout))
+        return ["timeout", "-k", f"{kill_after:g}s", f"{seconds}s"]
 
     # -- SbxTransport ------------------------------------------------------
 

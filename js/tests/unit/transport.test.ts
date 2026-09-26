@@ -103,6 +103,15 @@ describe("UT-EXEC", () => {
 
     expect(fake.argvs().at(-1)).toEqual(["exec", "s", "timeout", "-k", "5s", "3s", "sh", "-c", "sleep 600"]);
   });
+
+  it("UT-EXEC-08 rounds a sub-second timeout up to 1s", async () => {
+    // `timeout 0s` disables the guard, so a sub-second deadline must not
+    // truncate to "0s".
+    fake.configure({ code: 124, stderr: "timed out" });
+    await expect(cli(true).exec("s", "sleep 600", { timeout: 0.5 })).rejects.toBeInstanceOf(SbxTimeoutError);
+
+    expect(fake.argvs().at(-1)).toEqual(["exec", "s", "timeout", "-k", "5s", "1s", "sh", "-c", "sleep 600"]);
+  });
 });
 
 describe("UT-ERR", () => {

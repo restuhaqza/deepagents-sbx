@@ -122,6 +122,16 @@ def test_UT_EXEC_07_remote_timeout_exit_124(fake_sbx: FakeSbx) -> None:
     assert fake_sbx.argvs()[-1] == ["exec", "s", "timeout", "-k", "5s", "3s", "sh", "-c", "sleep 600"]
 
 
+def test_UT_EXEC_08_sub_second_timeout_rounds_up(fake_sbx: FakeSbx) -> None:
+    # `timeout 0s` disables the guard entirely, so a sub-second deadline must
+    # round up to 1s instead of truncating to "0s".
+    fake_sbx.configure(code=124, stderr="timed out")
+    with pytest.raises(SbxTimeoutError):
+        _cli(remote_timeout=True).exec("s", "sleep 600", timeout=0.5)
+
+    assert fake_sbx.argvs()[-1] == ["exec", "s", "timeout", "-k", "5s", "1s", "sh", "-c", "sleep 600"]
+
+
 # --------------------------------------------------------------------------- UT-ERR
 
 

@@ -68,6 +68,9 @@ export function parseMemoryMib(memory: string): number | null {
   while (index > 0 && /[a-z]/.test(text[index - 1] ?? "")) index -= 1;
   const number = text.slice(0, index);
   const unit = text.slice(index);
+  // Guard the empty case explicitly: `Number("") === 0`, which would make a
+  // unit-only string like "m" parse as 0 MiB instead of failing.
+  if (number.trim() === "") return null;
   const value = Number(number);
   if (!Number.isFinite(value)) return null;
   if (!unit) return Math.trunc(value); // bare numbers are MiB
@@ -373,7 +376,11 @@ export class CliSbxTransport implements SbxTransport {
 
   private timeoutPrefix(timeout: number | undefined): string[] {
     if (!this.remoteTimeout || timeout === undefined || timeout <= 0) return [];
-    return ["timeout", "-k", `${this.remoteKillAfter}s`, `${Math.trunc(timeout)}s`];
+    // ``timeout(1)`` treats a zero duration as *disabled*, so a sub-second
+    // deadline must round up to at least one second or the sandbox-side kill
+    // becomes a no-op (the host backstop would then be the only guard).
+    const seconds = Math.max(1, Math.ceil(timeout));
+    return ["timeout", "-k", `${this.remoteKillAfter}s`, `${seconds}s`];
   }
 
   async exec(sandbox: string, command: string, options: ExecOptions = {}): Promise<CommandResult> {

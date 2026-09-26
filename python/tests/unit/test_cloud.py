@@ -124,6 +124,10 @@ def test_UT_CLOUD_09_ttl_is_cloud_only(fake_sbx: FakeSbx) -> None:
         ("2GiB", 2048),
         ("32gb", 32768),
         ("nonsense", None),
+        # Unit-only / empty values must fail, not silently parse as 0 MiB.
+        ("m", None),
+        ("MiB", None),
+        ("", None),
     ],
 )
 def test_UT_CLOUD_10_parse_memory_mib(value: str, expected: int | None) -> None:
