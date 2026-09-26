@@ -27,6 +27,12 @@ import {
 export const DEFAULT_MAX_OUTPUT_BYTES = 512_000;
 /** Exit status reported by coreutils `timeout(1)` when it kills a command. */
 const TIMEOUT_EXIT_CODE = 124;
+/**
+ * How long to wait after `'exit'` for the stdio streams to close before
+ * settling anyway. `'close'` can be delayed indefinitely when a child inherits
+ * the pipe, so this bounds the wait without discarding normal output.
+ */
+const STREAM_CLOSE_GRACE_MS = 1_000;
 
 /** Billable Docker Cloud Sandboxes shapes, in MiB. */
 export const CLOUD_SHAPES: Record<string, { cpus: number; memoryMib: number }> = {
@@ -277,10 +283,16 @@ export class CliSbxTransport implements SbxTransport {
     const maxOutputBytes = options.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES;
     const timeout = options.timeout !== undefined && options.timeout > 0 ? options.timeout : undefined;
     const full = [...this.globalFlags(), ...argv];
+    const argvFull = [this.binary, ...full];
+    const detached = process.platform !== "win32";
 
     return new Promise<CommandResult>((resolve, reject) => {
       const child = spawn(this.binary, full, {
         stdio: ["ignore", "pipe", "pipe"],
+        // A dedicated process group lets a timeout kill `sbx` *and* anything it
+        // spawned. Without it, `child.kill()` only reaches the direct child and
+        // descendants keep the stdio pipes (and the sandbox work) alive.
+        detached,
         env: this.options.env ? { ...process.env, ...this.options.env } : process.env,
       });
 
@@ -289,16 +301,62 @@ export class CliSbxTransport implements SbxTransport {
       let truncated = false;
       let timedOut = false;
       let settled = false;
+      let timer: NodeJS.Timeout | undefined;
+      let closeFallback: NodeJS.Timeout | undefined;
 
-      const finish = (fn: () => void): void => {
+      const clearTimers = (): void => {
+        if (timer !== undefined) {
+          clearTimeout(timer);
+          timer = undefined;
+        }
+        if (closeFallback !== undefined) {
+          clearTimeout(closeFallback);
+          closeFallback = undefined;
+        }
+      };
+
+      const releaseStreams = (): void => {
+        child.stdout?.destroy();
+        child.stderr?.destroy();
+      };
+
+      const settle = (code: number | null): void => {
         if (settled) return;
         settled = true;
-        fn();
+        clearTimers();
+        // Release the pipes so a surviving grandchild cannot keep the event
+        // loop alive once we already have a result.
+        releaseStreams();
+        const output = Buffer.concat(chunks).toString("utf8");
+        if (timedOut) {
+          reject(
+            new SbxTimeoutError(`Command timed out after ${timeout}s: ${argvFull.slice(0, 4).join(" ")} ...`, {
+              argv: argvFull,
+              exitCode: null,
+              output,
+            }),
+          );
+          return;
+        }
+        resolve({ argv: argvFull, output, exitCode: code, truncated });
       };
 
       const kill = (): void => {
         if (child.exitCode !== null || child.signalCode !== null) return;
-        child.kill("SIGKILL");
+        if (detached && child.pid !== undefined) {
+          try {
+            // Negative pid signals the whole process group.
+            process.kill(-child.pid, "SIGKILL");
+            return;
+          } catch {
+            // Group already gone or unsupported; fall back to the direct child.
+          }
+        }
+        try {
+          child.kill("SIGKILL");
+        } catch {
+          // Already gone.
+        }
       };
 
       const collect = (chunk: Buffer): void => {
@@ -323,49 +381,38 @@ export class CliSbxTransport implements SbxTransport {
       child.stdout?.on("data", collect);
       child.stderr?.on("data", collect);
 
-      const timer =
-        timeout !== undefined
-          ? setTimeout(() => {
-              timedOut = true;
-              kill();
-            }, timeout * 1000)
-          : undefined;
+      if (timeout !== undefined) {
+        timer = setTimeout(() => {
+          timedOut = true;
+          kill();
+        }, timeout * 1000);
+      }
 
       child.on("error", (error: NodeJS.ErrnoException) => {
-        if (timer !== undefined) clearTimeout(timer);
-        finish(() => {
-          if (error.code === "ENOENT") {
-            reject(
-              new SbxNotInstalledError(
-                `'${this.binary}' was not found on PATH. Install Docker Sandboxes and make sure the 'sbx' CLI is available.`,
-              ),
-            );
-            return;
-          }
-          reject(new SbxError(`Failed to start '${this.binary}': ${error.message}`, { cause: error }));
-        });
+        if (settled) return;
+        settled = true;
+        clearTimers();
+        releaseStreams();
+        if (error.code === "ENOENT") {
+          reject(
+            new SbxNotInstalledError(
+              `'${this.binary}' was not found on PATH. Install Docker Sandboxes and make sure the 'sbx' CLI is available.`,
+            ),
+          );
+          return;
+        }
+        reject(new SbxError(`Failed to start '${this.binary}': ${error.message}`, { cause: error }));
       });
 
-      child.on("close", (code) => {
-        if (timer !== undefined) clearTimeout(timer);
-        const output = Buffer.concat(chunks).toString("utf8");
-        finish(() => {
-          if (timedOut) {
-            reject(
-              new SbxTimeoutError(
-                `Command timed out after ${timeout}s: ${[this.binary, ...full].slice(0, 4).join(" ")} ...`,
-                {
-                  argv: [this.binary, ...full],
-                  exitCode: null,
-                  output,
-                },
-              ),
-            );
-            return;
-          }
-          resolve({ argv: [this.binary, ...full], output, exitCode: code, truncated });
-        });
+      // `'close'` waits for every stdio holder to exit, so a grandchild can stall
+      // it forever. `'exit'` only waits for the direct child; use it to arm a
+      // bounded fallback so the promise always settles.
+      child.on("exit", (code) => {
+        if (settled) return;
+        closeFallback = setTimeout(() => settle(code), STREAM_CLOSE_GRACE_MS);
       });
+
+      child.on("close", (code) => settle(code));
     });
   }
 

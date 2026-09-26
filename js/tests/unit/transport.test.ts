@@ -112,6 +112,26 @@ describe("UT-EXEC", () => {
 
     expect(fake.argvs().at(-1)).toEqual(["exec", "s", "timeout", "-k", "5s", "1s", "sh", "-c", "sleep 600"]);
   });
+
+  it("UT-EXEC-09 settles even when a child keeps the stdio pipe open", async () => {
+    // The shim forks a grandchild that inherits stdout and outlives it, so
+    // Node's `close` event never fires; the transport must still settle.
+    fake.configure({ stdout: "done", holdMs: 1500 });
+    const started = Date.now();
+    const result = await cli().exec("s", "echo done", { timeout: 30 });
+
+    expect(result.output).toBe("done");
+    expect(result.exitCode).toBe(0);
+    expect(Date.now() - started).toBeLessThan(3000);
+  });
+
+  it("UT-EXEC-10 a timeout settles promptly when a child holds the pipe", async () => {
+    fake.configure({ holdMs: 30_000 });
+    const started = Date.now();
+    await expect(cli().exec("s", "sleep 30", { timeout: 0.3 })).rejects.toBeInstanceOf(SbxTimeoutError);
+
+    expect(Date.now() - started).toBeLessThan(3000);
+  });
 });
 
 describe("UT-ERR", () => {
