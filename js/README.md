@@ -54,6 +54,7 @@ const backend = await SbxSandbox.attach("my-sandbox");
 | `transport` | `CliSbxTransport` | Swap the transport implementation. |
 | `timeout` | `120` | Per-command timeout (seconds). |
 | `maxOutputBytes` | `524288` | Output cap; the child is killed at the cap. |
+| `maxDownloadBytes` | `52428800` | Cap on a single downloaded file (50 MiB); larger files fail with `file_too_large`. `0` disables. |
 | `autoRemove` | `true` | Delete on `close()`. |
 | `autoCreate` | `true` | Create on first use if missing. |
 | `pull` | sbx default | Image pull policy, e.g. `"missing"`. |
