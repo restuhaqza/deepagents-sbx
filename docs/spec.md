@@ -1,5 +1,11 @@
 # Implementation spec & verified findings
 
+> [!NOTE]
+> **Internal / contributor document.** For users, start with the
+> [documentation index](index.md) — [Concepts](concepts.md),
+> [Use cases](use-cases.md), [Usage](usage.md). This page records the design and
+> the findings verified against the real toolchain.
+
 This is the engineering spec for `deepagents-sbx`, reconciled against the real
 `sbx` CLI (v0.45.1), `deepagents` Python (0.7.19), and `deepagents` JS (1.14.1).
 

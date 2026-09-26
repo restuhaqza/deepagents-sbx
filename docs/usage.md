@@ -1,13 +1,22 @@
 # Usage
 
+> New here? Start with [Concepts](concepts.md) for the mental model and
+> [Use cases](use-cases.md) for scenario recipes. This page is the reference.
+
 ## Prerequisites
 
-1. **Docker Sandboxes CLI** — install from <https://docs.docker.com/ai/sandboxes/>.
-   The library shells out to `sbx`; there is no Python SDK dependency.
-2. **Sign in** — `sbx login` (Docker Sandboxes is login-gated).
+1. **Docker Sandboxes CLI** — install the `sbx` CLI (it is not a `pip`/`npm`
+   dependency). macOS: `brew trust docker/tap && brew install docker/tap/sbx` ·
+   Ubuntu 24.04+: `curl -fsSL https://get.docker.com | sudo SBX=1 sh` · Windows:
+   `winget install -h Docker.sbx`. See <https://docs.docker.com/ai/sandboxes/install/>.
+   Local sandboxes additionally need hardware virtualization (KVM on Linux,
+   Hypervisor Platform on Windows); **cloud does not**.
+2. **Sign in** — `sbx login` (Docker Sandboxes is login-gated; the same account
+   covers local and cloud).
 3. **Initialize the network policy once** — `sbx policy init balanced`
    (`allow-all` / `balanced` / `deny-all`). `sbx` refuses to start any sandbox
-   until this has been run.
+   until this has been run. Cloud keeps a **separate** policy store:
+   `sbx --cloud policy init balanced`.
 
 Verify:
 
@@ -113,6 +122,11 @@ forward-compatible.
 Docker Cloud Sandboxes are paid and have no host workspace. The same transport
 is used with the global `sbx --cloud` flag:
 
+> Cloud requires an active **Docker Agentic Platform subscription**, uses a
+> **separate** credential / secret / policy store from local, and defaults to a
+> **1-hour TTL** (service default — set `ttl` explicitly). Verify access with
+> `sbx --cloud diagnose`.
+
 ```python
 with SbxSandbox(cloud=True, cpus=1, memory="2g", ttl="10m") as backend:
     backend.execute("echo hello")
@@ -165,7 +179,7 @@ ttl = "2h"
 
 ### Cloud limitations
 
-- **No workspace bind mount** — `workspace=` raises. Retrieve results with
+- **No workspace bind mount** — `workspace=` raises `ValueError`. Retrieve results with
   `download_files()`.
 - **`inspect()` is unsupported** in cloud mode (`sbx inspect` is not implemented
   with `--cloud`); use `list()` for metadata.
