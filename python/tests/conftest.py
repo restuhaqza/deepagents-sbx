@@ -44,6 +44,13 @@ if stream_mb:
 
 stdout = os.environ.get("FAKE_SBX_STDOUT", "")
 stderr = os.environ.get("FAKE_SBX_STDERR", "")
+pad_kb = os.environ.get("FAKE_SBX_PAD_KB")
+if pad_kb:
+    # A valid JSON payload larger than the default output cap, for exercising
+    # the wider control-plane cap on `ls --json`.
+    sys.stdout.write('{"sandboxes": [], "pad": "' + "x" * (int(pad_kb) * 1024) + '"}')
+    sys.stdout.flush()
+    sys.exit(int(os.environ.get("FAKE_SBX_CODE", "0")))
 if stdout:
     sys.stdout.write(stdout)
     sys.stdout.flush()
@@ -71,6 +78,7 @@ class FakeSbx:
         code: int | None = None,
         sleep: float | None = None,
         stream_mb: int | None = None,
+        pad_kb: int | None = None,
     ) -> None:
         """Set the canned response for subsequent shim invocations."""
         mapping = {
@@ -79,6 +87,7 @@ class FakeSbx:
             "FAKE_SBX_CODE": None if code is None else str(code),
             "FAKE_SBX_SLEEP": None if sleep is None else str(sleep),
             "FAKE_SBX_STREAM_MB": None if stream_mb is None else str(stream_mb),
+            "FAKE_SBX_PAD_KB": None if pad_kb is None else str(pad_kb),
         }
         for key, value in mapping.items():
             if value is None:

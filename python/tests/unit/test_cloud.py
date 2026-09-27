@@ -10,7 +10,7 @@ import pytest
 
 from deepagents_sbx import SbxSandbox
 from deepagents_sbx.errors import SbxError, SbxShapeError
-from deepagents_sbx.provider import CLOUD_PROVIDER_NAME, SbxCloudProvider
+from deepagents_sbx.provider import CLOUD_PROVIDER_NAME, SbxCloudProvider, SbxProvider
 from deepagents_sbx.transport import (
     CLOUD_SHAPES,
     CliSbxTransport,
@@ -124,6 +124,10 @@ def test_UT_CLOUD_09_ttl_is_cloud_only(fake_sbx: FakeSbx) -> None:
         ("2GiB", 2048),
         ("32gb", 32768),
         ("nonsense", None),
+        # Unit-only / empty values must fail, not silently parse as 0 MiB.
+        ("m", None),
+        ("MiB", None),
+        ("", None),
     ],
 )
 def test_UT_CLOUD_10_parse_memory_mib(value: str, expected: int | None) -> None:
@@ -136,6 +140,12 @@ def test_UT_CLOUD_11_resolve_cloud_shape() -> None:
     assert set(CLOUD_SHAPES) == {"micro", "small", "medium", "large", "xl"}
     with pytest.raises(SbxShapeError):
         resolve_cloud_shape(8, "8g")
+
+
+def test_UT_CLOUD_11b_resolve_cloud_shape_rejects_non_numeric_cpus() -> None:
+    # A malformed config value must surface as SbxShapeError, not ValueError.
+    with pytest.raises(SbxShapeError):
+        resolve_cloud_shape("four", None)
 
 
 # --------------------------------------------------------------------------- backend
@@ -191,3 +201,31 @@ def test_UT_CLOUD_15_provider_delete_uses_cloud_transport(monkeypatch: pytest.Mo
 
     assert captured["cloud"] is True
     assert captured["removed"] == ("sbx_123", True)
+
+
+def test_UT_CLOUD_16_provider_forwards_a_configured_name(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeSandbox:
+        def __init__(self, **kwargs: object) -> None:
+            captured.update(kwargs)
+
+    monkeypatch.setattr("deepagents_sbx.provider.SbxSandbox", FakeSandbox)
+    SbxProvider().get_or_create(name="custom")
+
+    assert captured["name"] == "custom"
+
+
+def test_UT_CLOUD_17_provider_attach_drops_the_name(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeSandbox:
+        @classmethod
+        def attach(cls, name: str, **kwargs: object) -> None:
+            captured["name"] = name
+            captured.update(kwargs)
+
+    monkeypatch.setattr("deepagents_sbx.provider.SbxSandbox", FakeSandbox)
+    SbxProvider().get_or_create(sandbox_id="sbx_1", name="ignored")
+
+    assert captured == {"name": "sbx_1"}

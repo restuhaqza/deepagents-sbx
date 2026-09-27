@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import math
 import os
 import shutil
 import signal
@@ -51,6 +52,13 @@ from .errors import (
 
 DEFAULT_MAX_OUTPUT_BYTES: int = 512_000
 """Default cap on captured command output, mirroring the Python backend's cap."""
+
+CONTROL_MAX_OUTPUT_BYTES: int = 8 * 1024 * 1024
+"""Output cap for control-plane JSON (``ls`` / ``inspect``).
+
+The default 512 KB cap can truncate a very large sandbox listing, and a
+truncated JSON payload is unparseable, so control responses get a wider cap.
+"""
 
 _READ_CHUNK: int = 64 * 1024
 _KILL_GRACE_SECONDS: float = 5.0
@@ -81,8 +89,13 @@ _NOT_FOUND_MARKERS: tuple[str, ...] = (
     "sandbox not found",
     "no sandbox named",
     "does not exist",
-    "not found",
 )
+"""Phrases that mean *the sandbox* is missing.
+
+A bare ``"not found"`` is deliberately absent: ordinary command output (e.g.
+``grep: pattern not found``) contains it, and matching it turned unrelated
+failures into :class:`SbxNotFoundError`.
+"""
 
 _LOGIN_HINT = "Run 'sbx login' first."
 _POLICY_HINT = "Run 'sbx policy init <allow-all|balanced|deny-all>' first."
@@ -158,7 +171,11 @@ def resolve_cloud_shape(cpus: int | None, memory: str | None) -> str:
     Raises:
         SbxShapeError: If the pair does not name a billable shape.
     """
-    effective_cpus = _CLOUD_DEFAULT_CPUS if cpus is None else int(cpus)
+    effective_cpus = _CLOUD_DEFAULT_CPUS if cpus is None else cpus
+    try:
+        effective_cpus = int(effective_cpus)
+    except (TypeError, ValueError) as exc:
+        raise SbxShapeError(f"Could not parse cloud cpus value {cpus!r}.") from exc
     effective_memory = _CLOUD_DEFAULT_MEMORY if memory is None else memory
     memory_mib = parse_memory_mib(effective_memory)
     if memory_mib is None:
@@ -447,6 +464,10 @@ class CliSbxTransport(SbxTransport):
             long commands so the *remote* process dies too. The host-side kill is
             always active as a backstop. Set to ``False`` on images without
             coreutils ``timeout``.
+        control_timeout: Host-side deadline in seconds for control-plane verbs
+            (``create``/``rm``/``ls``/``inspect``/``cp``/``ttl``). ``None`` or a
+            non-positive value disables it. Guards against a stalled CLI blocking
+            the caller forever; does not apply to ``exec`` (which has its own).
         cloud: Target Docker Cloud Sandboxes (``sbx --cloud …``). Cloud
             sandboxes have no host workspace and bill per shape.
     """
@@ -458,13 +479,21 @@ class CliSbxTransport(SbxTransport):
         env: Mapping[str, str] | None = None,
         remote_timeout: bool = True,
         remote_kill_after: float = 5.0,
+        control_timeout: float | None = 120.0,
         cloud: bool = False,
     ) -> None:
         self.binary = binary
         self.env = dict(env or {})
         self.remote_timeout = remote_timeout
         self.remote_kill_after = remote_kill_after
+        self.control_timeout = control_timeout
         self.cloud = cloud
+
+    @property
+    def _control_deadline(self) -> float | None:
+        """``control_timeout`` normalized to ``None`` when disabled."""
+        value = self.control_timeout
+        return value if value is not None and value > 0 else None
 
     @property
     def _global_flags(self) -> list[str]:
@@ -501,7 +530,11 @@ class CliSbxTransport(SbxTransport):
         if not self.remote_timeout or timeout is None or timeout <= 0:
             return []
         kill_after = max(1.0, float(self.remote_kill_after))
-        return ["timeout", "-k", f"{kill_after:g}s", f"{int(timeout)}s"]
+        # ``timeout(1)`` treats a zero duration as *disabled*, so a sub-second
+        # deadline must round up to at least one second or the sandbox-side kill
+        # becomes a no-op (the host backstop would then be the only guard).
+        seconds = max(1, math.ceil(timeout))
+        return ["timeout", "-k", f"{kill_after:g}s", f"{seconds}s"]
 
     # -- SbxTransport ------------------------------------------------------
 
@@ -548,10 +581,10 @@ class CliSbxTransport(SbxTransport):
         return result
 
     def upload(self, sandbox: str, local_path: str, remote_path: str) -> CommandResult:
-        return self._check(self._run(["cp", local_path, f"{sandbox}:{remote_path}"]))
+        return self._check(self._run(["cp", local_path, f"{sandbox}:{remote_path}"], timeout=self._control_deadline))
 
     def download(self, sandbox: str, remote_path: str, local_path: str) -> CommandResult:
-        return self._check(self._run(["cp", f"{sandbox}:{remote_path}", local_path]))
+        return self._check(self._run(["cp", f"{sandbox}:{remote_path}", local_path], timeout=self._control_deadline))
 
     def create(
         self,
@@ -588,7 +621,7 @@ class CliSbxTransport(SbxTransport):
         args.append(agent)
         if workspace:
             args.append(workspace)
-        return self._check(self._run(args))
+        return self._check(self._run(args, timeout=self._control_deadline))
 
     def _create_cloud(
         self,
@@ -621,24 +654,30 @@ class CliSbxTransport(SbxTransport):
         if on_timeout:
             args += ["--on-timeout", on_timeout]
         args.append(agent)
-        return self._check(self._run(args))
+        return self._check(self._run(args, timeout=self._control_deadline))
 
     def remove(self, name: str, *, force: bool = True) -> CommandResult:
         args = ["rm"]
         if force:
             args.append("--force")
         args.append(name)
-        return self._check(self._run(args))
+        return self._check(self._run(args, timeout=self._control_deadline))
 
     def list(self) -> list[SandboxInfo]:
-        result = self._check(self._run(["ls", "--json"]))
+        result = self._check(
+            self._run(["ls", "--json"], timeout=self._control_deadline, max_output_bytes=CONTROL_MAX_OUTPUT_BYTES)
+        )
         return parse_sandbox_list(result.output)
 
     def inspect(self, name: str) -> Mapping[str, Any] | None:
         if self.cloud:
             # `sbx inspect` is not implemented in --cloud mode (verified v0.45.1).
             raise SbxError("'sbx inspect' is not supported in cloud mode; use list() for cloud sandbox metadata.")
-        result = self._run(["inspect", name, "--json"])
+        result = self._run(
+            ["inspect", name, "--json"],
+            timeout=self._control_deadline,
+            max_output_bytes=CONTROL_MAX_OUTPUT_BYTES,
+        )
         if not result.ok:
             error = classify_failure(result)
             if isinstance(error, SbxNotFoundError):
@@ -658,14 +697,14 @@ class CliSbxTransport(SbxTransport):
     def ttl(self, name: str) -> Mapping[str, Any] | None:
         if not self.cloud:
             raise SbxError("TTL inspection is cloud-only; local sandboxes are not TTL-managed.")
-        result = self._check(self._run(["ttl", name, "--json"]))
+        result = self._check(self._run(["ttl", name, "--json"], timeout=self._control_deadline))
         return self._json_object(result)
 
     def extend_ttl(self, name: str, duration: str) -> Mapping[str, Any] | None:
         if not self.cloud:
             raise SbxError("TTL extension is cloud-only; local sandboxes are not TTL-managed.")
         value = duration if duration.startswith("+") else f"+{duration}"
-        result = self._check(self._run(["ttl", value, name, "--json"]))
+        result = self._check(self._run(["ttl", value, name, "--json"], timeout=self._control_deadline))
         return self._json_object(result)
 
     @staticmethod
@@ -728,6 +767,7 @@ def _optional_str(value: Any) -> str | None:
 
 __all__ = [
     "CLOUD_SHAPES",
+    "CONTROL_MAX_OUTPUT_BYTES",
     "DEFAULT_MAX_OUTPUT_BYTES",
     "CliSbxTransport",
     "CommandResult",

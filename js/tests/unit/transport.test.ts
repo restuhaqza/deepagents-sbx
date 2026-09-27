@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   SbxAuthError,
+  SbxCommandError,
   SbxNotFoundError,
   SbxNotInstalledError,
   SbxPolicyError,
@@ -103,6 +104,50 @@ describe("UT-EXEC", () => {
 
     expect(fake.argvs().at(-1)).toEqual(["exec", "s", "timeout", "-k", "5s", "3s", "sh", "-c", "sleep 600"]);
   });
+
+  it("UT-EXEC-08 rounds a sub-second timeout up to 1s", async () => {
+    // `timeout 0s` disables the guard, so a sub-second deadline must not
+    // truncate to "0s".
+    fake.configure({ code: 124, stderr: "timed out" });
+    await expect(cli(true).exec("s", "sleep 600", { timeout: 0.5 })).rejects.toBeInstanceOf(SbxTimeoutError);
+
+    expect(fake.argvs().at(-1)).toEqual(["exec", "s", "timeout", "-k", "5s", "1s", "sh", "-c", "sleep 600"]);
+  });
+
+  it("UT-EXEC-09 settles even when a child keeps the stdio pipe open", async () => {
+    // The shim forks a grandchild that inherits stdout and outlives it, so
+    // Node's `close` event never fires; the transport must still settle.
+    fake.configure({ stdout: "done", holdMs: 1500 });
+    const started = Date.now();
+    const result = await cli().exec("s", "echo done", { timeout: 30 });
+
+    expect(result.output).toBe("done");
+    expect(result.exitCode).toBe(0);
+    expect(Date.now() - started).toBeLessThan(3000);
+  });
+
+  it("UT-EXEC-10 a timeout settles promptly when a child holds the pipe", async () => {
+    fake.configure({ holdMs: 30_000 });
+    const started = Date.now();
+    await expect(cli().exec("s", "sleep 30", { timeout: 0.3 })).rejects.toBeInstanceOf(SbxTimeoutError);
+
+    expect(Date.now() - started).toBeLessThan(3000);
+  });
+
+  it("UT-EXEC-11 control-plane verbs get a host deadline", async () => {
+    // A stalled CLI must not block the caller forever.
+    fake.configure({ sleep: 30 });
+    const transport = new CliSbxTransport("sbx", { remoteTimeout: false, controlTimeout: 0.3 });
+
+    const started = Date.now();
+    await expect(transport.list()).rejects.toBeInstanceOf(SbxTimeoutError);
+    expect(Date.now() - started).toBeLessThan(3000);
+  });
+
+  it("UT-EXEC-12 parses a listing larger than the default cap", async () => {
+    fake.configure({ padKb: 600 });
+    expect(await cli().list()).toEqual([]);
+  });
 });
 
 describe("UT-ERR", () => {
@@ -125,6 +170,11 @@ describe("UT-ERR", () => {
   it("UT-ERR-04 raises SbxNotInstalledError for a missing binary", async () => {
     const transport = new CliSbxTransport("definitely-not-a-real-sbx-binary");
     await expect(transport.list()).rejects.toBeInstanceOf(SbxNotInstalledError);
+  });
+
+  it("UT-ERR-05 keeps a generic 'not found' as a command error", async () => {
+    fake.configure({ stdout: "grep: pattern not found\n", code: 1 });
+    await expect(cli().remove("nope")).rejects.toBeInstanceOf(SbxCommandError);
   });
 });
 

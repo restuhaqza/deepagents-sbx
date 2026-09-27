@@ -21,6 +21,14 @@ if (sleep) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Number(sleep) * 1000);
 }
 
+const hold = process.env.FAKE_SBX_HOLD_MS;
+if (hold) {
+  // Fork a grandchild that inherits stdout/stderr and outlives this process,
+  // so \`close\` never fires. The transport must still settle.
+  const { spawn } = require("node:child_process");
+  spawn(process.execPath, ["-e", "setTimeout(() => {}, " + Number(hold) + ")"], { stdio: "inherit" });
+}
+
 const streamMb = process.env.FAKE_SBX_STREAM_MB;
 if (streamMb) {
   const chunk = Buffer.alloc(65536, 0x78);
@@ -29,6 +37,14 @@ if (streamMb) {
     fs.writeSync(1, chunk);
     remaining -= chunk.length;
   }
+  process.exit(Number(process.env.FAKE_SBX_CODE || "0"));
+}
+
+const padKb = process.env.FAKE_SBX_PAD_KB;
+if (padKb) {
+  // A valid JSON payload larger than the default output cap, for exercising the
+  // wider control-plane cap on \`ls --json\`.
+  fs.writeSync(1, '{"sandboxes": [], "pad": "' + "x".repeat(Number(padKb) * 1024) + '"}');
   process.exit(Number(process.env.FAKE_SBX_CODE || "0"));
 }
 
@@ -45,6 +61,10 @@ export interface FakeSbxConfig {
   code?: number;
   sleep?: number;
   streamMb?: number;
+  /** Fork a grandchild that holds stdout/stderr open for this many ms. */
+  holdMs?: number;
+  /** Emit a JSON payload padded to this many KB (for the control output cap). */
+  padKb?: number;
 }
 
 export class FakeSbx {
@@ -73,6 +93,8 @@ export class FakeSbx {
     set("FAKE_SBX_CODE", config.code === undefined ? undefined : String(config.code));
     set("FAKE_SBX_SLEEP", config.sleep === undefined ? undefined : String(config.sleep));
     set("FAKE_SBX_STREAM_MB", config.streamMb === undefined ? undefined : String(config.streamMb));
+    set("FAKE_SBX_HOLD_MS", config.holdMs === undefined ? undefined : String(config.holdMs));
+    set("FAKE_SBX_PAD_KB", config.padKb === undefined ? undefined : String(config.padKb));
   }
 
   argvs(): string[][] {

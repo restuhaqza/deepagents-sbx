@@ -1,9 +1,13 @@
 /** Backend unit tests: path safety, partial success, timeouts, lifecycle. */
 
+import { existsSync } from "node:fs";
+import { dirname } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
-import { SbxTimeoutError } from "../../src/errors.js";
+import { SbxCommandError, SbxTimeoutError } from "../../src/errors.js";
 import { SbxSandbox } from "../../src/sandbox.js";
+import type { SbxTransport } from "../../src/transport.js";
 
 import { SpyTransport, ok } from "../helpers/spy-transport.js";
 
@@ -38,7 +42,7 @@ describe("path safety", () => {
 });
 
 describe("partial success", () => {
-  it("CT-TR-01 upload partial success", async () => {
+  it("UT-TR-01 upload partial success", async () => {
     const transport = new SpyTransport({ uploadErrors: [undefined, "permission denied"] });
     const backend = sandbox(transport);
 
@@ -51,7 +55,7 @@ describe("partial success", () => {
     expect(responses[1]?.error).toBe("permission_denied");
   });
 
-  it("CT-TR-02 download partial success", async () => {
+  it("UT-TR-02 download partial success", async () => {
     const transport = new SpyTransport({
       downloadErrors: [undefined, "no such file"],
       downloadContents: [new Uint8Array([1, 2, 3])],
@@ -64,6 +68,26 @@ describe("partial success", () => {
     expect(responses[0]?.error).toBeNull();
     expect(responses[1]?.content).toBeNull();
     expect(responses[1]?.error).toBe("file_not_found");
+  });
+
+  it("rejects a download over the size cap", async () => {
+    const transport = new SpyTransport({ downloadContents: [new Uint8Array(32)] });
+    const backend = sandbox(transport, { maxDownloadBytes: 8 });
+
+    const responses = await backend.downloadFiles(["/big.bin"]);
+
+    expect(responses[0]?.content).toBeNull();
+    expect(responses[0]?.error).toBe("file_too_large");
+  });
+
+  it("allows a download exactly at the size cap", async () => {
+    const transport = new SpyTransport({ downloadContents: [new Uint8Array(8)] });
+    const backend = sandbox(transport, { maxDownloadBytes: 8 });
+
+    const responses = await backend.downloadFiles(["/ok.bin"]);
+
+    expect(responses[0]?.error).toBeNull();
+    expect(responses[0]?.content?.length).toBe(8);
   });
 
   it("creates the parent directory before uploading", async () => {
@@ -142,6 +166,19 @@ describe("lifecycle", () => {
 
     expect(transport.methods("remove")).toHaveLength(1);
   });
+
+  it("close drops the staging dir even when autoRemove=false", async () => {
+    const transport = new SpyTransport();
+    const backend = sandbox(transport, { autoRemove: false });
+    await backend.uploadFiles([["/a.txt", new Uint8Array([1])]]);
+
+    const staged = String(transport.methods("upload")[0]?.args[1]);
+    const dir = dirname(staged);
+    expect(existsSync(dir)).toBe(true);
+
+    await backend.close();
+    expect(existsSync(dir)).toBe(false);
+  });
 });
 
 describe("identity and creation", () => {
@@ -175,5 +212,46 @@ describe("identity and creation", () => {
   it("workingDir is the workspace when set", () => {
     const backend = new SbxSandbox({ name: "demo", transport: new SpyTransport(), autoCreate: false, workspace: "/host/p" });
     expect(backend.workingDir).toBe("/host/p");
+  });
+});
+
+describe("bootstrap resilience", () => {
+  it("retries bootstrap after a transient create failure", async () => {
+    const transport = new SpyTransport({ createErrors: ["boom"] });
+    const backend = new SbxSandbox({ name: "demo", transport });
+
+    await expect(backend.execute("true")).rejects.toBeInstanceOf(SbxCommandError);
+    await expect(backend.execute("true")).resolves.toMatchObject({ exitCode: 0 });
+    expect(transport.methods("create")).toHaveLength(2);
+  });
+
+  it("remove() waits for an in-flight create so it cannot leak the sandbox", async () => {
+    const order: string[] = [];
+    const transport: SbxTransport = {
+      exec: async () => ok(),
+      upload: async () => ok(),
+      download: async () => ok(),
+      create: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 40));
+        order.push("create");
+        return ok();
+      },
+      remove: async () => {
+        order.push("remove");
+        return ok();
+      },
+      list: async () => [],
+      inspect: async () => null,
+      exists: async () => false,
+      ttl: async () => null,
+      extendTtl: async () => null,
+    };
+    const backend = new SbxSandbox({ name: "demo", transport });
+
+    const execution = backend.execute("true").catch(() => undefined); // starts bootstrap
+    await backend.remove();
+    await execution;
+
+    expect(order).toEqual(["create", "remove"]);
   });
 });

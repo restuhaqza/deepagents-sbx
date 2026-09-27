@@ -61,12 +61,33 @@ backend.remove()   # explicit
 | `transport` | `CliSbxTransport()` | Swap the transport implementation. |
 | `timeout` | `120` | Per-command timeout (seconds). `0`/`None` disables. |
 | `max_output_bytes` | `524288` | Output cap; the command is killed at the cap. |
+| `max_download_bytes` | `52428800` | Cap on a single downloaded file (50 MiB); larger files fail with `file_too_large`. `0`/`None` disables. |
 | `auto_remove` | `True` | Delete on `close()`. |
 | `auto_create` | `True` | Create on construction if missing. |
 | `pull` | sbx default | Image pull policy, e.g. `"missing"`. |
 | `cloud` | `False` | Target Docker Cloud Sandboxes instead of a local microVM. |
 | `ttl` | sandbox default | Cloud-only time-to-live, e.g. `"2h"`. Recommended for cost control. |
 | `on_timeout` | `"delete"` | Cloud-only: `"delete"` or `"stop"` when the TTL lapses. |
+
+### Transport tuning
+
+Control-plane commands (`create`, `rm`, `ls`, `inspect`, `cp`, `ttl`) run with a
+host-side deadline so a stalled CLI cannot block the caller forever. Tune it on
+the transport:
+
+```python
+from deepagents_sbx import CliSbxTransport, SbxSandbox
+
+backend = SbxSandbox(
+    transport=CliSbxTransport(
+        control_timeout=300,    # seconds; 0/None disables (default 120)
+        remote_timeout=False,   # no sandbox-side `timeout` wrapper
+    )
+)
+```
+
+`remote_timeout=False` is for images without coreutils `timeout`; the host
+deadline is still applied as a backstop.
 
 ### Attaching and reattaching
 

@@ -11,7 +11,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, posix } from "node:path";
 
@@ -25,6 +25,15 @@ export const DEFAULT_AGENT = "shell";
 /** Directory `sbx exec` starts in for a workspace-less `shell` sandbox. */
 export const DEFAULT_WORKING_DIR = "/home/agent/workspace";
 export const DEFAULT_TIMEOUT = 120;
+/** Default cap on a single downloaded file (50 MiB); `0` disables. */
+export const DEFAULT_MAX_DOWNLOAD_BYTES = 50 * 1024 * 1024;
+
+/**
+ * Backend-specific download error for a file over the cap. The deepagents
+ * `FileOperationError` union has no size code, so this is narrowed to it; it is
+ * reported as a per-file error like the other standardized codes.
+ */
+const FILE_TOO_LARGE = "file_too_large" as FileOperationError;
 
 /**
  * Permissions for staged uploads.
@@ -52,6 +61,8 @@ export interface SbxSandboxOptions {
   timeout?: number;
   /** Output cap; the child process is killed once it is reached. */
   maxOutputBytes?: number;
+  /** Cap on a single downloaded file in bytes (default 50 MiB); `0` disables. */
+  maxDownloadBytes?: number;
   /** Delete the sandbox on `close()` (default `true`). */
   autoRemove?: boolean;
   /** Create the sandbox on first use if missing (default `true`). */
@@ -92,6 +103,7 @@ export class SbxSandbox extends BaseSandbox {
   readonly cloud: boolean;
   readonly timeout: number;
   readonly maxOutputBytes: number;
+  readonly maxDownloadBytes: number;
   readonly autoRemove: boolean;
 
   private readonly autoCreate: boolean;
@@ -120,6 +132,7 @@ export class SbxSandbox extends BaseSandbox {
     this.workspace = options.workspace;
     this.timeout = options.timeout ?? DEFAULT_TIMEOUT;
     this.maxOutputBytes = options.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES;
+    this.maxDownloadBytes = options.maxDownloadBytes ?? DEFAULT_MAX_DOWNLOAD_BYTES;
     this.autoRemove = options.autoRemove ?? true;
     this.autoCreate = options.autoCreate ?? true;
     this.pull = options.pull;
@@ -159,7 +172,14 @@ export class SbxSandbox extends BaseSandbox {
   }
 
   private ensureReady(): Promise<void> {
-    this.ready ??= this.start();
+    if (this.ready === undefined) {
+      this.ready = this.start().catch((error: unknown) => {
+        // Never cache a failed bootstrap: a transient cause (CLI not yet
+        // installed, network blip) should be retryable on the next call.
+        this.ready = undefined;
+        throw error;
+      });
+    }
     return this.ready;
   }
 
@@ -244,6 +264,13 @@ export class SbxSandbox extends BaseSandbox {
       const staged = join(await this.tempDirPath(), `download-${randomUUID()}`);
       try {
         await this.transport.download(this.name, path, staged);
+        if (this.maxDownloadBytes > 0) {
+          const info = await stat(staged);
+          if (info.size > this.maxDownloadBytes) {
+            responses.push({ path, content: null, error: FILE_TOO_LARGE });
+            continue;
+          }
+        }
         const content = new Uint8Array(await readFile(staged));
         responses.push({ path, content, error: null });
       } catch (error) {
@@ -288,6 +315,9 @@ export class SbxSandbox extends BaseSandbox {
    */
   async remove(): Promise<void> {
     if (this.removed) return;
+    // If bootstrap is in flight, let it finish first: removing before a pending
+    // create lands would 404, swallow it, and then leak the sandbox it creates.
+    await this.ready?.catch(() => undefined);
     try {
       await this.transport.remove(this.name, { force: true });
     } catch (error) {
@@ -297,9 +327,13 @@ export class SbxSandbox extends BaseSandbox {
     await this.cleanupTempDir();
   }
 
-  /** Delete the sandbox when `autoRemove` is set. */
+  /** Delete the sandbox when `autoRemove` is set; always drop staging files. */
   async close(): Promise<void> {
-    if (this.autoRemove) await this.remove();
+    if (this.autoRemove) {
+      await this.remove(); // also drops the staging dir
+      return;
+    }
+    await this.cleanupTempDir();
   }
 
   private async cleanupTempDir(): Promise<void> {

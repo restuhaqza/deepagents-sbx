@@ -12,6 +12,7 @@ import pytest
 
 from deepagents_sbx.errors import (
     SbxAuthError,
+    SbxCommandError,
     SbxNotFoundError,
     SbxNotInstalledError,
     SbxPolicyError,
@@ -34,6 +35,14 @@ def test_UT_CMD_01_command_is_an_argv_array(fake_sbx: FakeSbx) -> None:
     _cli().exec("sandbox-1", "ls -la && rm -rf x", timeout=None)
 
     assert fake_sbx.argvs()[-1] == ["exec", "sandbox-1", "sh", "-c", "ls -la && rm -rf x"]
+
+
+def test_UT_CMD_03_list_parses_payload_larger_than_default_cap(fake_sbx: FakeSbx) -> None:
+    # 600 KB of valid JSON exceeds the 512 KB default cap; a truncated payload
+    # would be unparseable, so control-plane verbs get a wider cap.
+    fake_sbx.configure(pad_kb=600)
+
+    assert _cli().list() == []
 
 
 def test_UT_CMD_02_metacharacters_survive_byte_for_byte(fake_sbx: FakeSbx) -> None:
@@ -122,6 +131,29 @@ def test_UT_EXEC_07_remote_timeout_exit_124(fake_sbx: FakeSbx) -> None:
     assert fake_sbx.argvs()[-1] == ["exec", "s", "timeout", "-k", "5s", "3s", "sh", "-c", "sleep 600"]
 
 
+def test_UT_EXEC_08_sub_second_timeout_rounds_up(fake_sbx: FakeSbx) -> None:
+    # `timeout 0s` disables the guard entirely, so a sub-second deadline must
+    # round up to 1s instead of truncating to "0s".
+    fake_sbx.configure(code=124, stderr="timed out")
+    with pytest.raises(SbxTimeoutError):
+        _cli(remote_timeout=True).exec("s", "sleep 600", timeout=0.5)
+
+    assert fake_sbx.argvs()[-1] == ["exec", "s", "timeout", "-k", "5s", "1s", "sh", "-c", "sleep 600"]
+
+
+def test_UT_EXEC_09_control_plane_verbs_have_a_host_deadline(fake_sbx: FakeSbx) -> None:
+    # A stalled CLI must not block the caller forever. Control-plane verbs get a
+    # host-side deadline (`exec` has its own remote+host pair).
+    fake_sbx.configure(sleep=30)
+    transport = CliSbxTransport(binary="sbx", remote_timeout=False, control_timeout=0.3)
+
+    started = time.monotonic()
+    with pytest.raises(SbxTimeoutError):
+        transport.list()
+
+    assert time.monotonic() - started < 5
+
+
 # --------------------------------------------------------------------------- UT-ERR
 
 
@@ -157,6 +189,17 @@ def test_UT_ERR_03_missing_binary_raises_clear_error(tmp_path, monkeypatch) -> N
 
     assert "sbx" in str(excinfo.value)
     assert "PATH" in str(excinfo.value)
+
+
+def test_UT_ERR_04_generic_not_found_stays_a_command_error(fake_sbx: FakeSbx) -> None:
+    # Only sandbox-specific phrasing maps to SbxNotFoundError; a bare "not found"
+    # in ordinary output must not.
+    fake_sbx.configure(stdout="grep: pattern not found\n", code=1)
+
+    with pytest.raises(SbxCommandError) as excinfo:
+        _cli().remove("nope")
+
+    assert not isinstance(excinfo.value, SbxNotFoundError)
 
 
 # --------------------------------------------------------------------------- UT-CP

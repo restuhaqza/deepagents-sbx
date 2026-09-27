@@ -25,8 +25,20 @@ import {
 } from "./errors.js";
 
 export const DEFAULT_MAX_OUTPUT_BYTES = 512_000;
+/**
+ * Output cap for control-plane JSON (`ls` / `inspect`). The default 512 KB cap
+ * can truncate a very large sandbox listing, and a truncated JSON payload is
+ * unparseable.
+ */
+export const CONTROL_MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
 /** Exit status reported by coreutils `timeout(1)` when it kills a command. */
 const TIMEOUT_EXIT_CODE = 124;
+/**
+ * How long to wait after `'exit'` for the stdio streams to close before
+ * settling anyway. `'close'` can be delayed indefinitely when a child inherits
+ * the pipe, so this bounds the wait without discarding normal output.
+ */
+const STREAM_CLOSE_GRACE_MS = 1_000;
 
 /** Billable Docker Cloud Sandboxes shapes, in MiB. */
 export const CLOUD_SHAPES: Record<string, { cpus: number; memoryMib: number }> = {
@@ -68,6 +80,9 @@ export function parseMemoryMib(memory: string): number | null {
   while (index > 0 && /[a-z]/.test(text[index - 1] ?? "")) index -= 1;
   const number = text.slice(0, index);
   const unit = text.slice(index);
+  // Guard the empty case explicitly: `Number("") === 0`, which would make a
+  // unit-only string like "m" parse as 0 MiB instead of failing.
+  if (number.trim() === "") return null;
   const value = Number(number);
   if (!Number.isFinite(value)) return null;
   if (!unit) return Math.trunc(value); // bare numbers are MiB
@@ -165,7 +180,9 @@ const AUTH_MARKERS = [
 
 const POLICY_MARKERS = ["global network policy has not been initialized", "sbx policy init"];
 
-const NOT_FOUND_MARKERS = ["no such sandbox", "sandbox not found", "no sandbox named", "does not exist", "not found"];
+const NOT_FOUND_MARKERS = ["no such sandbox", "sandbox not found", "no sandbox named", "does not exist"];
+// No bare "not found": ordinary command output (e.g. "grep: pattern not found")
+// contains it, which turned unrelated failures into SbxNotFoundError.
 
 const LOGIN_HINT = "Run 'sbx login' first.";
 const POLICY_HINT = "Run 'sbx policy init <allow-all|balanced|deny-all>' first.";
@@ -238,6 +255,12 @@ export interface CliSbxTransportOptions {
   remoteTimeout?: boolean;
   /** Seconds the sandbox-side `timeout` waits after SIGTERM before SIGKILL. */
   remoteKillAfter?: number;
+  /**
+   * Host-side deadline in seconds for control-plane verbs (`create`, `rm`, `ls`,
+   * `inspect`, `cp`, `ttl`). Defaults to 120. `0` disables it. Does not apply to
+   * `exec`, which has its own per-command timeout.
+   */
+  controlTimeout?: number;
   /** Target Docker Cloud Sandboxes (`sbx --cloud …`) instead of local `sandboxd`. */
   cloud?: boolean;
 }
@@ -266,6 +289,11 @@ export class CliSbxTransport implements SbxTransport {
     return Math.max(1, this.options.remoteKillAfter ?? 5);
   }
 
+  private get controlTimeout(): number | undefined {
+    const value = this.options.controlTimeout ?? 120;
+    return value > 0 ? value : undefined;
+  }
+
   private globalFlags(): string[] {
     return this.cloud ? ["--cloud"] : [];
   }
@@ -274,10 +302,16 @@ export class CliSbxTransport implements SbxTransport {
     const maxOutputBytes = options.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES;
     const timeout = options.timeout !== undefined && options.timeout > 0 ? options.timeout : undefined;
     const full = [...this.globalFlags(), ...argv];
+    const argvFull = [this.binary, ...full];
+    const detached = process.platform !== "win32";
 
     return new Promise<CommandResult>((resolve, reject) => {
       const child = spawn(this.binary, full, {
         stdio: ["ignore", "pipe", "pipe"],
+        // A dedicated process group lets a timeout kill `sbx` *and* anything it
+        // spawned. Without it, `child.kill()` only reaches the direct child and
+        // descendants keep the stdio pipes (and the sandbox work) alive.
+        detached,
         env: this.options.env ? { ...process.env, ...this.options.env } : process.env,
       });
 
@@ -286,16 +320,62 @@ export class CliSbxTransport implements SbxTransport {
       let truncated = false;
       let timedOut = false;
       let settled = false;
+      let timer: NodeJS.Timeout | undefined;
+      let closeFallback: NodeJS.Timeout | undefined;
 
-      const finish = (fn: () => void): void => {
+      const clearTimers = (): void => {
+        if (timer !== undefined) {
+          clearTimeout(timer);
+          timer = undefined;
+        }
+        if (closeFallback !== undefined) {
+          clearTimeout(closeFallback);
+          closeFallback = undefined;
+        }
+      };
+
+      const releaseStreams = (): void => {
+        child.stdout?.destroy();
+        child.stderr?.destroy();
+      };
+
+      const settle = (code: number | null): void => {
         if (settled) return;
         settled = true;
-        fn();
+        clearTimers();
+        // Release the pipes so a surviving grandchild cannot keep the event
+        // loop alive once we already have a result.
+        releaseStreams();
+        const output = Buffer.concat(chunks).toString("utf8");
+        if (timedOut) {
+          reject(
+            new SbxTimeoutError(`Command timed out after ${timeout}s: ${argvFull.slice(0, 4).join(" ")} ...`, {
+              argv: argvFull,
+              exitCode: null,
+              output,
+            }),
+          );
+          return;
+        }
+        resolve({ argv: argvFull, output, exitCode: code, truncated });
       };
 
       const kill = (): void => {
         if (child.exitCode !== null || child.signalCode !== null) return;
-        child.kill("SIGKILL");
+        if (detached && child.pid !== undefined) {
+          try {
+            // Negative pid signals the whole process group.
+            process.kill(-child.pid, "SIGKILL");
+            return;
+          } catch {
+            // Group already gone or unsupported; fall back to the direct child.
+          }
+        }
+        try {
+          child.kill("SIGKILL");
+        } catch {
+          // Already gone.
+        }
       };
 
       const collect = (chunk: Buffer): void => {
@@ -320,49 +400,38 @@ export class CliSbxTransport implements SbxTransport {
       child.stdout?.on("data", collect);
       child.stderr?.on("data", collect);
 
-      const timer =
-        timeout !== undefined
-          ? setTimeout(() => {
-              timedOut = true;
-              kill();
-            }, timeout * 1000)
-          : undefined;
+      if (timeout !== undefined) {
+        timer = setTimeout(() => {
+          timedOut = true;
+          kill();
+        }, timeout * 1000);
+      }
 
       child.on("error", (error: NodeJS.ErrnoException) => {
-        if (timer !== undefined) clearTimeout(timer);
-        finish(() => {
-          if (error.code === "ENOENT") {
-            reject(
-              new SbxNotInstalledError(
-                `'${this.binary}' was not found on PATH. Install Docker Sandboxes and make sure the 'sbx' CLI is available.`,
-              ),
-            );
-            return;
-          }
-          reject(new SbxError(`Failed to start '${this.binary}': ${error.message}`, { cause: error }));
-        });
+        if (settled) return;
+        settled = true;
+        clearTimers();
+        releaseStreams();
+        if (error.code === "ENOENT") {
+          reject(
+            new SbxNotInstalledError(
+              `'${this.binary}' was not found on PATH. Install Docker Sandboxes and make sure the 'sbx' CLI is available.`,
+            ),
+          );
+          return;
+        }
+        reject(new SbxError(`Failed to start '${this.binary}': ${error.message}`, { cause: error }));
       });
 
-      child.on("close", (code) => {
-        if (timer !== undefined) clearTimeout(timer);
-        const output = Buffer.concat(chunks).toString("utf8");
-        finish(() => {
-          if (timedOut) {
-            reject(
-              new SbxTimeoutError(
-                `Command timed out after ${timeout}s: ${[this.binary, ...full].slice(0, 4).join(" ")} ...`,
-                {
-                  argv: [this.binary, ...full],
-                  exitCode: null,
-                  output,
-                },
-              ),
-            );
-            return;
-          }
-          resolve({ argv: [this.binary, ...full], output, exitCode: code, truncated });
-        });
+      // `'close'` waits for every stdio holder to exit, so a grandchild can stall
+      // it forever. `'exit'` only waits for the direct child; use it to arm a
+      // bounded fallback so the promise always settles.
+      child.on("exit", (code) => {
+        if (settled) return;
+        closeFallback = setTimeout(() => settle(code), STREAM_CLOSE_GRACE_MS);
       });
+
+      child.on("close", (code) => settle(code));
     });
   }
 
@@ -373,7 +442,11 @@ export class CliSbxTransport implements SbxTransport {
 
   private timeoutPrefix(timeout: number | undefined): string[] {
     if (!this.remoteTimeout || timeout === undefined || timeout <= 0) return [];
-    return ["timeout", "-k", `${this.remoteKillAfter}s`, `${Math.trunc(timeout)}s`];
+    // ``timeout(1)`` treats a zero duration as *disabled*, so a sub-second
+    // deadline must round up to at least one second or the sandbox-side kill
+    // becomes a no-op (the host backstop would then be the only guard).
+    const seconds = Math.max(1, Math.ceil(timeout));
+    return ["timeout", "-k", `${this.remoteKillAfter}s`, `${seconds}s`];
   }
 
   async exec(sandbox: string, command: string, options: ExecOptions = {}): Promise<CommandResult> {
@@ -409,11 +482,11 @@ export class CliSbxTransport implements SbxTransport {
   }
 
   async upload(sandbox: string, localPath: string, remotePath: string): Promise<CommandResult> {
-    return this.check(await this.run(["cp", localPath, `${sandbox}:${remotePath}`], {}));
+    return this.check(await this.run(["cp", localPath, `${sandbox}:${remotePath}`], { timeout: this.controlTimeout }));
   }
 
   async download(sandbox: string, remotePath: string, localPath: string): Promise<CommandResult> {
-    return this.check(await this.run(["cp", `${sandbox}:${remotePath}`, localPath], {}));
+    return this.check(await this.run(["cp", `${sandbox}:${remotePath}`, localPath], { timeout: this.controlTimeout }));
   }
 
   async create(name: string, options: CreateOptions = {}): Promise<CommandResult> {
@@ -425,7 +498,7 @@ export class CliSbxTransport implements SbxTransport {
     if (options.pull) args.push("--pull", options.pull);
     args.push(options.agent ?? "shell");
     if (options.workspace) args.push(options.workspace);
-    return this.check(await this.run(args, {}));
+    return this.check(await this.run(args, { timeout: this.controlTimeout }));
   }
 
   private async createCloud(name: string, options: CreateOptions): Promise<CommandResult> {
@@ -441,18 +514,20 @@ export class CliSbxTransport implements SbxTransport {
     if (options.ttl) args.push("--ttl", options.ttl);
     if (options.onTimeout) args.push("--on-timeout", options.onTimeout);
     args.push(options.agent ?? "shell");
-    return this.check(await this.run(args, {}));
+    return this.check(await this.run(args, { timeout: this.controlTimeout }));
   }
 
   async remove(name: string, options: RemoveOptions = {}): Promise<CommandResult> {
     const args = ["rm"];
     if (options.force ?? true) args.push("--force");
     args.push(name);
-    return this.check(await this.run(args, {}));
+    return this.check(await this.run(args, { timeout: this.controlTimeout }));
   }
 
   async list(): Promise<SandboxInfo[]> {
-    const result = await this.check(await this.run(["ls", "--json"], {}));
+    const result = await this.check(
+      await this.run(["ls", "--json"], { timeout: this.controlTimeout, maxOutputBytes: CONTROL_MAX_OUTPUT_BYTES }),
+    );
     return parseSandboxList(result.output);
   }
 
@@ -460,7 +535,10 @@ export class CliSbxTransport implements SbxTransport {
     if (this.cloud) {
       throw new SbxError("'sbx inspect' is not supported in cloud mode; use list() for cloud sandbox metadata.");
     }
-    const result = await this.run(["inspect", name, "--json"], {});
+    const result = await this.run(["inspect", name, "--json"], {
+      timeout: this.controlTimeout,
+      maxOutputBytes: CONTROL_MAX_OUTPUT_BYTES,
+    });
     if (result.exitCode !== 0) {
       const error = classifyFailure(result);
       if (error instanceof SbxNotFoundError) return null;
@@ -476,13 +554,15 @@ export class CliSbxTransport implements SbxTransport {
 
   async ttl(sandbox: string): Promise<Record<string, unknown> | null> {
     if (!this.cloud) throw new SbxError("TTL inspection is cloud-only; local sandboxes are not TTL-managed.");
-    return parseJsonObject(await this.check(await this.run(["ttl", sandbox, "--json"], {})));
+    return parseJsonObject(await this.check(await this.run(["ttl", sandbox, "--json"], { timeout: this.controlTimeout })));
   }
 
   async extendTtl(sandbox: string, duration: string): Promise<Record<string, unknown> | null> {
     if (!this.cloud) throw new SbxError("TTL extension is cloud-only; local sandboxes are not TTL-managed.");
     const value = duration.startsWith("+") ? duration : `+${duration}`;
-    return parseJsonObject(await this.check(await this.run(["ttl", value, sandbox, "--json"], {})));
+    return parseJsonObject(
+      await this.check(await this.run(["ttl", value, sandbox, "--json"], { timeout: this.controlTimeout })),
+    );
   }
 }
 
