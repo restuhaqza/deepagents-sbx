@@ -17,7 +17,8 @@ pip install "deepagents-sbx[code]"    # + Deep Agents Code provider
 
 Requires **Python 3.12+** and the free
 [`sbx` CLI](https://docs.docker.com/ai/sandboxes/) installed and logged in
-(`sbx login`).
+(`sbx login`). Local sandboxes always need the CLI; for Docker Cloud Sandboxes
+you can skip it with the opt-in [API transport](#cloud-via-the-api-optional).
 
 ## Use
 
@@ -36,6 +37,24 @@ Bind-mount a host project (mounted at the same absolute path inside the VM):
 with SbxSandbox(workspace="/path/to/project") as backend:
     ...
 ```
+
+## Cloud via the API (optional)
+
+Cloud normally uses the same CLI with `--cloud`. To drive Docker Cloud Sandboxes
+over Docker's experimental
+[Sandboxes API](https://docs.docker.com/ai/sandboxes-api/) with **no `sbx`
+process**, swap in `ApiSbxTransport` (standard library only, no new dependency):
+
+```python
+from deepagents_sbx import ApiSbxTransport, SbxSandbox
+
+transport = ApiSbxTransport(docker_id="you", personal_access_token="dckr_pat_…")
+with SbxSandbox(cloud=True, transport=transport, ttl="10m") as backend:
+    backend.execute("echo hello")
+```
+
+Auth is independent of `sbx login` (OAuth or a PAT with the `sandbox:use`
+permission). The API is experimental and cloud-only.
 
 ## Deep Agents Code
 

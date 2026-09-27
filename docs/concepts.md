@@ -36,8 +36,10 @@ Linux kernel, its own filesystem, and a **private Docker daemon** — and expose
 it through a CLI: `sbx exec` to run a command, `sbx cp` to move files, `sbx rm`
 to throw it away, `sbx ttl` to manage cloud lifetimes.
 
-`deepagents-sbx` drives that CLI. There is no REST client or SDK dependency;
-cloud uses the same CLI with the global `--cloud` flag.
+`deepagents-sbx` drives that CLI by default. There is no required REST client or
+SDK dependency; cloud uses the same CLI with the global `--cloud` flag. Cloud
+alternatively supports an **opt-in** API transport over Docker's experimental
+[Sandboxes API](https://docs.docker.com/ai/sandboxes-api/) — see below.
 
 ## microVM vs container
 
@@ -90,8 +92,13 @@ machine; the cloud policy applies to your Docker account. They are independent �
 initializing one does not configure the other.
 
 **Transport.** Everything goes through a `SbxTransport` seam. The default
-`CliSbxTransport` shells out to `sbx`; a REST client or the official
-`@docker/sandboxes` SDK can be dropped in later without changing `SbxSandbox`.
+`CliSbxTransport` shells out to `sbx`, the only *supported* **local** interface.
+For **cloud**, an opt-in `ApiSbxTransport` drives the same microVMs over Docker's
+experimental [Sandboxes API](https://docs.docker.com/ai/sandboxes-api/) (REST in
+Python, the official `@docker/sandboxes` SDK in JS) with no child process — useful
+when `sbx` is not installed or when you want the API's structured errors and
+resource metadata. The switch is per-sandbox and additive:
+`SbxSandbox(cloud=True, transport=ApiSbxTransport(...))`.
 
 **Timeouts.** The constructor takes a default per-command `timeout` in seconds
 (`execute(cmd, timeout=...)` overrides it for one call; `0`/`None` disables it). A
@@ -155,14 +162,15 @@ Docker daemon**, plus a **free local** mode.
 | Term | Meaning |
 |---|---|
 | **Docker Sandboxes** | Docker's sandbox runner. Runs a lightweight **microVM** and exposes it through the `sbx` CLI. |
-| **`sbx`** | The Docker Sandboxes command-line tool this project drives (`sbx exec`, `sbx cp`, `sbx rm`, `sbx ttl`, …). Not installed by `pip`/`npm` — install it separately. |
+| **`sbx`** | The Docker Sandboxes command-line tool this project drives by default (`sbx exec`, `sbx cp`, `sbx rm`, `sbx ttl`, …). Not installed by `pip`/`npm` — install it separately. Required for local sandboxes. |
+| **`ApiSbxTransport`** | Opt-in cloud transport that drives Docker Cloud Sandboxes over the experimental [Sandboxes API](https://docs.docker.com/ai/sandboxes-api/) instead of the CLI. Python uses the REST API directly; JS uses `@docker/sandboxes`. |
 | **Docker Cloud Sandboxes** | The paid, remote flavour of Docker Sandboxes. Selected with `sbx --cloud` / `SbxSandbox(cloud=True)`. |
 | **microVM** | A small virtual machine with its **own Linux kernel**, unlike a container which shares the host kernel. |
 | **`shell` image** | The default sbx agent image (`docker/sandbox-templates:shell-docker`, Ubuntu). It ships `python3` (needed by the Python backend) and a Docker daemon. Choose another with `agent=...`. |
 | **shape** | A billable cloud size: `micro` (1 vCPU/2 GiB), `small` (2/4), `medium` (4/8), `large` (8/16), `xl` (16/32). |
 | **TTL** | Cloud-only time-to-live before the sandbox times out (`ttl=` / `on_timeout="delete"|"stop"`). |
 | **output cap** | `max_output_bytes` (Python) / `maxOutputBytes` (JS), default **524288** (512 KiB). The command is killed once reached. |
-| **transport** | The `SbxTransport` abstraction; the default `CliSbxTransport` shells out to `sbx`. |
+| **transport** | The `SbxTransport` abstraction; the default `CliSbxTransport` shells out to `sbx`, and the opt-in `ApiSbxTransport` uses the cloud API. |
 | **virtiofs** | The mechanism used to bind-mount a host directory into the microVM (local `workspace=`). |
 | **`dcode`** | Deep Agents Code, the CLI front-end of Deep Agents. The `[code]` extra registers the `sbx` and `sbx-cloud` providers for it. |
 | **`name` vs `id`** | `name` is the mutable handle you choose; `id` is the stable identifier from `sbx ls --json`. `attach()` accepts either. |

@@ -215,6 +215,8 @@ with SbxSandbox(cloud=True, cpus=4, memory="8g", ttl="30m", on_timeout="delete")
   `max_output_bytes`. Redirect large output to a file and download it.
 - Runnable end-to-end example (create → exec → files → TTL → remove):
   <https://github.com/restuhaqza/deepagents-sbx-playground>.
+- To drive this cloud path **without the `sbx` CLI**, swap in `ApiSbxTransport`
+  — see [Usage § API transport](usage.md#api-transport-cloud-only).
 
 ---
 
@@ -288,6 +290,7 @@ with SbxSandbox(memory="4g", workspace="/tmp/payloads") as backend:
 | Output cap | `max_output_bytes` | `maxOutputBytes` |
 | Teardown | `remove()` / `close()` | `remove()` / `close()` |
 | Cloud | `cloud=True, ttl=..., on_timeout=...` | `cloud: true, ttl: ..., onTimeout: ...` |
+| Cloud without the CLI | `ApiSbxTransport(...)` (REST) | `ApiSbxTransport(...)` (`@docker/sandboxes`, optional peer) |
 | In-sandbox `python3` | Required (the `shell` image has it) | Not required (pure POSIX) |
 
 ```ts
