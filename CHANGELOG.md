@@ -19,6 +19,9 @@ While pre-1.0 (`0.x`), minor releases may include breaking changes.
 - JavaScript: `ApiSbxTransport`, the matching opt-in transport built on the
   official `@docker/sandboxes` SDK. The SDK is an **optional peer dependency**
   (loaded lazily), so the base install stays dependency-free. See #14.
+- Docs: the CLI-vs-API decision, opt-in usage and auth for both ports, and the
+  provider differences are documented (README, `docs/concepts.md`,
+  `docs/spec.md`, `docs/usage.md`, package READMEs). See #17.
 
 ## [0.1.0] - 2026-09-25
 

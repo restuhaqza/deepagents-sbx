@@ -140,6 +140,27 @@ Cloud sandboxes are **billable**, have **no host bind-mount**, and are validated
 against billable shapes (`micro` … `xl`) *before* any API call. Always set a
 `ttl`. Details: [docs/usage.md § Cloud](docs/usage.md#cloud-sandboxes).
 
+Cloud can also skip the `sbx` CLI entirely via the opt-in API transport:
+
+```python
+from deepagents_sbx import ApiSbxTransport, SbxSandbox
+
+transport = ApiSbxTransport(docker_id="you", personal_access_token="dckr_pat_…")
+with SbxSandbox(cloud=True, transport=transport, ttl="10m") as backend:
+    backend.execute("echo hello")
+```
+
+```ts
+import { ApiSbxTransport, SbxSandbox } from "deepagents-sbx";
+// npm install @docker/sandboxes   (optional peer, only needed for this transport)
+
+const transport = new ApiSbxTransport({ sdkOptions: { auth: pat({ username, personalAccessToken }) } });
+const backend = new SbxSandbox({ cloud: true, ttl: "10m", transport });
+```
+
+Auth is independent of `sbx login`, and both the API and the SDK are
+**experimental**. Details: [docs/usage.md § API transport](docs/usage.md#api-transport-cloud-only).
+
 There's a runnable end-to-end playground for the cloud path:
 <https://github.com/restuhaqza/deepagents-sbx-playground>.
 
@@ -163,11 +184,15 @@ Package quickstarts (what appears on the registries):
 operation (`read`, `write`, `edit`, `ls`, `grep`, `glob`, `delete`) is derived by
 the base class and routed through `execute()`.
 
-It talks to Docker Sandboxes through the `sbx` CLI (the only *supported* local
-interface). Cloud uses the same transport: `--cloud` is a global flag, so
-create/exec/cp/rm/ttl share one code path. The transport sits behind a
-`SbxTransport` seam, so a REST client or the official `@docker/sandboxes` SDK can
-be dropped in later without touching `SbxSandbox`.
+It talks to Docker Sandboxes through the `sbx` CLI by default (the only
+*supported* local interface). Cloud uses the same transport: `--cloud` is a
+global flag, so create/exec/cp/rm/ttl share one code path. For cloud you can
+instead opt into `ApiSbxTransport`, which drives the experimental
+[Sandboxes API](https://docs.docker.com/ai/sandboxes-api/) with **no child
+process** — a plain REST client in Python, the official `@docker/sandboxes` SDK
+in JS (an optional dependency). Both sit behind the same `SbxTransport` seam, so
+`SbxSandbox` is unchanged either way. Details:
+[docs/usage.md § API transport](docs/usage.md#api-transport-cloud-only).
 
 More: [docs/concepts.md](docs/concepts.md) and [docs/spec.md](docs/spec.md).
 

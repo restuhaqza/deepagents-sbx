@@ -51,7 +51,7 @@ const backend = await SbxSandbox.attach("my-sandbox");
 | `agent` | `"shell"` | Built-in sbx agent image. |
 | `workspace` | — | Host dir bind-mounted at the same absolute path. |
 | `cpus` / `memory` / `profile` | sbx defaults | `sbx create` sizing/governance. |
-| `transport` | `CliSbxTransport` | Swap the transport implementation. |
+| `transport` | `CliSbxTransport` | Swap the transport implementation (`ApiSbxTransport` for the cloud API). |
 | `timeout` | `120` | Per-command timeout (seconds). |
 | `maxOutputBytes` | `524288` | Output cap; the child is killed at the cap. |
 | `maxDownloadBytes` | `52428800` | Cap on a single downloaded file (50 MiB); larger files fail with `file_too_large`. `0` disables. |
@@ -72,6 +72,22 @@ Cloud sandboxes are billable, have no host workspace, and must use a billable
 shape (`micro`/`small`/`medium`/`large`/`xl`); an invalid pair throws
 `SbxShapeError` before any call. Use `backend.ttl()` / `backend.extendTtl("5m")`
 and always set `ttl` so an abandoned sandbox stops billing.
+
+For direct API access with no `sbx` process, opt into the API transport built on
+the experimental [`@docker/sandboxes`](https://www.npmjs.com/package/@docker/sandboxes)
+SDK (an optional peer dependency — `npm install @docker/sandboxes`):
+
+```ts
+import { pat } from "@docker/sandboxes";
+import { ApiSbxTransport, SbxSandbox } from "deepagents-sbx";
+
+const transport = new ApiSbxTransport({
+  sdkOptions: { auth: pat({ username: process.env.DOCKER_ID!, personalAccessToken: process.env.DOCKER_PAT! }) },
+});
+const backend = new SbxSandbox({ cloud: true, ttl: "10m", transport });
+```
+
+Auth is independent of `sbx login`.
 
 ## Testing
 

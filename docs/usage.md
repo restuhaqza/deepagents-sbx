@@ -18,6 +18,10 @@
    until this has been run. Cloud keeps a **separate** policy store:
    `sbx --cloud policy init balanced`.
 
+> Steps 1–3 are for the default CLI transport. The cloud-only
+> [API transport](#api-transport-cloud-only) needs none of them (no `sbx`
+> binary, no `sbx login`, no `sbx policy`), but does need its own credentials.
+
 Verify:
 
 ```bash
@@ -58,7 +62,7 @@ backend.remove()   # explicit
 | `cpus` | sbx default | `sbx create --cpus`. |
 | `memory` | sbx default | `sbx create --memory`, e.g. `"4g"`. |
 | `profile` | sbx default | Governance profile, e.g. `"balanced"`. |
-| `transport` | `CliSbxTransport()` | Swap the transport implementation. |
+| `transport` | `CliSbxTransport()` | Swap the transport implementation. Use `ApiSbxTransport` for the cloud API — see [API transport](#api-transport-cloud-only). |
 | `timeout` | `120` | Per-command timeout (seconds). `0`/`None` disables. |
 | `max_output_bytes` | `524288` | Output cap; the command is killed at the cap. |
 | `max_download_bytes` | `52428800` | Cap on a single downloaded file (50 MiB); larger files fail with `file_too_large`. `0`/`None` disables. |
@@ -88,6 +92,9 @@ backend = SbxSandbox(
 
 `remote_timeout=False` is for images without coreutils `timeout`; the host
 deadline is still applied as a backstop.
+
+`ApiSbxTransport` takes the same `remote_timeout` / `remote_kill_after` knobs plus
+its own `control_timeout`; see [API transport](#api-transport-cloud-only).
 
 ### Attaching and reattaching
 
@@ -140,8 +147,8 @@ forward-compatible.
 
 ## Cloud Sandboxes
 
-Docker Cloud Sandboxes are paid and have no host workspace. The same transport
-is used with the global `sbx --cloud` flag:
+Docker Cloud Sandboxes are paid and have no host workspace. The default
+transport is the same CLI with the global `sbx --cloud` flag:
 
 > Cloud requires an active **Docker Agentic Platform subscription**, uses a
 > **separate** credential / secret / policy store from local, and defaults to a
@@ -202,8 +209,9 @@ ttl = "2h"
 
 - **No workspace bind mount** — `workspace=` raises `ValueError`. Retrieve results with
   `download_files()`.
-- **`inspect()` is unsupported** in cloud mode (`sbx inspect` is not implemented
-  with `--cloud`); use `list()` for metadata.
+- **`inspect()` is unsupported** in cloud mode via the CLI (`sbx inspect` is not
+  implemented with `--cloud`); use `list()` for metadata, or the
+  [API transport](#api-transport-cloud-only), where `inspect()` works.
 - **Egress defaults to `deny-all`.** The cloud account policy is separate from
   the local one; set it with `sbx --cloud policy init balanced` before expecting
   package installs or network calls to work.
@@ -212,6 +220,96 @@ ttl = "2h"
   sbx --cloud policy init balanced      # or allow-all / deny-all
   ```
 - **No `docker`-in-sandbox guarantee** beyond what the cloud image provides.
+
+## API transport (cloud only)
+
+By default cloud goes through the same `sbx` CLI with a global `--cloud` flag.
+You can instead drive Docker Cloud Sandboxes over Docker's **experimental**
+[Sandboxes API](https://docs.docker.com/ai/sandboxes-api/) with **no child
+process**, by swapping the transport. It is **additive and cloud-only**: local
+sandboxes still require the CLI, and `CliSbxTransport` remains the default.
+
+Reach for it when `sbx` is not installed on the machine that runs the agent, or
+when you want the API's structured errors, real `inspect()`, and pagination.
+
+> [!WARNING]
+> The API and the JS SDK are experimental — interfaces may change. Cloud compute
+> is billable, and this path needs its **own** credentials: `sbx login` is not
+> reused.
+
+### Python
+
+Standard library only — no extra dependency.
+
+```python
+from deepagents_sbx import ApiSbxTransport, SbxSandbox
+
+transport = ApiSbxTransport(
+    docker_id="your-docker-id",
+    personal_access_token="dckr_pat_…",   # needs the `sandbox:use` permission
+)
+with SbxSandbox(cloud=True, transport=transport, ttl="10m") as backend:
+    backend.execute("echo hello")
+```
+
+| Option | Meaning |
+|---|---|
+| `access_token` | A fixed management bearer token. |
+| `token_provider` | Callable returning a bearer token; called per request. |
+| `docker_id` + `personal_access_token` | Exchanged for a short-lived bearer, cached and refreshed on `401`. |
+| `base_url` | Management API base (default `https://connect.docker.com/sandboxes`). |
+| `image` | Registry image for `agent="shell"` (default `docker/sandbox-templates:shell-docker`). The API has no bundled-kit string field, so Python creates from an `imageRef`. |
+| `control_timeout` | Host deadline in seconds for control-plane calls (default `120`; `0` disables). |
+| `poll_interval` / `poll_timeout` | Backoff and overall bound while waiting for a create/delete to settle. |
+| `fetch` | Inject a custom HTTP callable (proxy, custom CA, tests). |
+
+Bundled kit names other than `shell` have no Python image mapping; pass an
+explicit registry ref as `agent=`, e.g. `agent="ghcr.io/acme/agent:1"`.
+
+### JavaScript
+
+Built on the official [`@docker/sandboxes`](https://www.npmjs.com/package/@docker/sandboxes)
+SDK, declared as an **optional peer dependency** and loaded lazily:
+
+```bash
+npm install @docker/sandboxes
+```
+
+```ts
+import { pat } from "@docker/sandboxes";
+import { ApiSbxTransport, SbxSandbox } from "deepagents-sbx";
+
+const transport = new ApiSbxTransport({
+  sdkOptions: {
+    auth: pat({ username: process.env.DOCKER_ID!, personalAccessToken: process.env.DOCKER_PAT! }),
+  },
+});
+const backend = new SbxSandbox({ cloud: true, ttl: "10m", transport });
+try {
+  await backend.execute("echo hello");
+} finally {
+  await backend.close();
+}
+```
+
+Because the SDK is optional, merely importing `deepagents-sbx` never requires
+it; a missing SDK raises an actionable error only when the transport is used.
+`ApiSbxTransport` also supports `client` (a pre-built `Sandboxes`) and `loadSdk`
+(a custom module loader), and `close()` releases the client it created.
+
+The JS transport can launch the SDK's bundled kits (e.g. `agent: "claude"`),
+unlike the Python port.
+
+### Differences from the CLI path
+
+| | CLI (`--cloud`) | API transport |
+|---|---|---|
+| `sbx` binary | required | **not** required |
+| Auth | `sbx login` session | OAuth / PAT (`sandbox:use`) |
+| `inspect()` | not implemented in cloud | works |
+| Bundled kits | any agent name | Python: `imageRef` only; JS: SDK kits |
+| Errors | string-matched from CLI output | API error `code` + HTTP status |
+| Local sandboxes | ✅ | ❌ (cloud only) |
 
 ## Network policy
 

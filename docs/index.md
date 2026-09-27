@@ -17,7 +17,7 @@ A Docker Sandboxes (`sbx`) microVM sandbox backend for
 ## By role
 
 - **Evaluator / newcomer** → [Concepts](concepts.md) → [Use cases](use-cases.md) → [Quickstart](../README.md#quickstart-60-seconds)
-- **User / operator** → [Usage reference](usage.md) (cloud, network policy, errors) → [Use cases](use-cases.md)
+- **User / operator** → [Usage reference](usage.md) (cloud, [API transport](usage.md#api-transport-cloud-only), network policy, errors) → [Use cases](use-cases.md)
 - **Contributor** → [Spec](spec.md) (architecture, API mapping, testing, release)
 
 ## By task
@@ -30,6 +30,7 @@ A Docker Sandboxes (`sbx`) microVM sandbox backend for
 | Point the agent at an existing repo | [Use cases § 4](use-cases.md#4-bind-mount-an-existing-repository) |
 | Use it as a terminal coding agent (`dcode`) | [Use cases § 5](use-cases.md#5-daily-driver-terminal-agent-dcode) |
 | Offload a heavy job to the cloud | [Use cases § 6](use-cases.md#6-cloud-burst--artifact-retrieval) |
+| Drive cloud without the `sbx` CLI | [Usage § API transport](usage.md#api-transport-cloud-only) |
 | Run agents reproducibly in CI | [Use cases § 7](use-cases.md#7-ephemeral-ci-agent-runs) |
 | Choose between Python and JS | [Use cases § 9](use-cases.md#9-python--javascript-parity) |
 | Understand errors and fix failures | [Usage § Troubleshooting](usage.md#troubleshooting) |

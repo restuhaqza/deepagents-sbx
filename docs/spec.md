@@ -100,9 +100,12 @@ sandbox host. The Python base class uses a server-side `python3` script for
 
 ## Design decisions
 
-1. **Transport = CLI shell-out for local.** The only supported local interface;
-   no documented local REST API. Cloud (M5) uses a hand-rolled REST client
-   (Python & JS) or the official `@docker/sandboxes` TS SDK (JS only).
+1. **Transport = CLI shell-out by default.** The `sbx` CLI is the only
+   *supported* local interface (there is no documented local REST API; the
+   `sandboxd` daemon exposes only an undocumented Unix socket). Cloud is served
+   by the same CLI (`--cloud`) and, optionally, by an HTTP transport over the
+   experimental Sandboxes API — see
+   [API transport](#api-transport-opt-in-cloud-only).
 2. **argv arrays, `shell=False` on the host.** The command is wrapped in a single
    `sh -c` inside the sandbox.
 3. **Streaming with a hard cap.** The subprocess is killed at
@@ -157,6 +160,52 @@ Billable shapes: `micro` (1/2048), `small` (2/4096, default), `medium`
 (4/8192), `large` (8/16384), `xl` (16/32768). Cloud sandboxes have no host
 workspace; `create` rejects one.
 
+### API transport (opt-in, cloud-only)
+
+Since the original spike, Docker has published an **experimental**
+[Sandboxes API](https://docs.docker.com/ai/sandboxes-api/)
+(`connect.docker.com/sandboxes`, v1) and a TypeScript SDK
+(`@docker/sandboxes`). Both are **cloud-only**. They back an opt-in alternative
+to the CLI, `ApiSbxTransport`, so cloud sandboxes can be driven without spawning
+a child process. It is additive: `CliSbxTransport` remains the default.
+
+| Decision | Rationale |
+|---|---|
+| API transport is **cloud-only** | The API manages Cloud Sandboxes. Local `sandboxd` exposes only an undocumented Unix-socket API, so the CLI stays the local interface. |
+| **Opt-in**, CLI is the default | Preserves the existing dependency story and lets the experimental API change without breaking defaults. |
+| Python uses **stdlib only** (`urllib`) | Keeps the package's single runtime dependency; there is no official Python SDK. |
+| JS uses the official SDK as an **optional peer** | Lazily imported, so the base install stays dependency-free; the emitted `.d.ts` never references it. |
+| Auth is **independent of `sbx login`** | The API wants OAuth (device flow) or a Docker PAT with `sandbox:use`; the CLI session is not reused. |
+
+Operation mapping (verified against the v1 OpenAPI spec):
+
+| `SbxTransport` op | API operation |
+|---|---|
+| `exec` | sandbox endpoint `POST /v1/processes/exec` — argv in `cmd`; `stdout`/`stderr` are base64 (`format: byte`) with an `incomplete` truncation flag |
+| `upload` / `download` | `PUT` / `GET {endpoint}/v1/files/content` (raw `application/octet-stream`; `mode` query on write) |
+| `create` | `POST /v1/sandboxes` (`imageRef` + `resources.memoryMib` + `features.timeouts`), then poll `GET /v1/sandboxes/{id}` until `running` |
+| `remove` | `DELETE /v1/sandboxes/{id}?force=…` with the required `If-Match` etag; `202` = deleting, `204` = done |
+| `list` / `inspect` | `GET /v1/sandboxes[...]` (paginate via `nextPageToken`); `inspect` works in cloud, unlike `sbx inspect --cloud` |
+| `ttl` / `extend_ttl` | `effectiveFeatures.timeouts`; extend via `POST /v1/sandboxes/{id}/renew-timeout` (`Duration` is a seconds string) |
+
+Endpoint calls use a short-lived per-sandbox credential from
+`POST /v1/sandboxes/{id}/endpoint-credentials` (the JS SDK manages this
+internally). Durations accept the CLI's `"10m"`/`"2h"` form and are normalised
+to the API's seconds string.
+
+Both transports map failures onto the same `SbxError` family; the API path
+classifies the API's stable error `code` (e.g. `notFound` → `SbxNotFoundError`,
+`unauthenticated` → `SbxAuthError`) rather than string-matching CLI output.
+
+Known differences from the CLI path:
+
+- Bundled kits are **not** launchable from Python: the API has no `kit: "shell"`
+  string field, so Python creates from an `imageRef` (default
+  `docker/sandbox-templates:shell-docker`). The JS SDK ships the kit artifacts.
+- `create` requires the API's billable shape; `resolve_cloud_shape` still
+  validates the pair **before** any call.
+- `SbxSandbox.inspect()` works over the API but not via `sbx --cloud`.
+
 ## Testing strategy
 
 | Level | Needs login / virtualization | Harness |
@@ -191,6 +240,7 @@ Versions must match in `python/pyproject.toml` and `js/package.json`.
 | M3 | JS `SbxSandbox` + tests | ✅ |
 | M4 | integration matrix, README, publish | ✅ published to PyPI + npm as v0.1.0 |
 | M5 | cloud transport | ✅ `sbx --cloud` CLI mode, Python & JS |
+| M6 | opt-in cloud API transport | ✅ `ApiSbxTransport` (REST in Python, `@docker/sandboxes` in JS) |
 
 ## Corrections to the original spec
 
@@ -200,7 +250,8 @@ Versions must match in `python/pyproject.toml` and `js/package.json`.
 | Sandbox teardown method `delete()` | Must be `remove()`: `BaseSandbox.delete(file_path)` already owns the file-deletion tool, so overriding it breaks that tool. |
 | `sbx cp` upload preserves file permissions | It preserves the source mode *and* ownership; a `0600` staging file is unreadable/unwritable by the sandbox user, so uploads are staged `0666`. |
 | JS and Python base classes are equivalent | They differ: JS `ls` marks directories with a trailing `/`; JS `glob` returns paths relative to the search root; JS `read` returns `content` (not `file_data.content`); JS `grep` output is colon-parsed (`path:line:text`) while Python uses NUL separators (GNU `grep -Z`). |
-| Cloud needs a REST client or the official TS SDK | `--cloud` is a **global CLI flag** covering create/exec/cp/rm/ls/stop/attach/ports/policy/ttl, so the CLI transport serves cloud too — no REST client or SDK required. |
+| Cloud needs a REST client or the official TS SDK | `--cloud` is a **global CLI flag** covering create/exec/cp/rm/ls/stop/attach/ports/policy/ttl, so the CLI transport serves cloud too — no REST client or SDK required. An opt-in `ApiSbxTransport` now wraps the published cloud API as an alternative (M6). |
+| No REST API anywhere | Local remains CLI-only, but Docker now publishes an **experimental cloud** API + SDK; see [API transport](#api-transport-opt-in-cloud-only). |
 | `sbx inspect` works everywhere | ❌ Not implemented in `--cloud` mode (v0.45.1); the transport raises. Cloud metadata comes from `ls`. |
 | Cloud sandbox ids are names | `sbx --cloud ls --json` returns a stable `sbx_*` id; `SbxSandbox.id` resolves to it. |
 | Cloud sizing accepts arbitrary CPU/memory | It must land on a billable shape; the backend validates and raises `SbxShapeError` before any API call. |
