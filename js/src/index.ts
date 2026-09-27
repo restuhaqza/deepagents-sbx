@@ -25,6 +25,7 @@ export {
   classifyFailure,
   parseMemoryMib,
   parseSandboxList,
+  remoteTimeoutPrefix,
   resolveCloudShape,
 } from "./transport.js";
 
@@ -33,9 +34,18 @@ export type {
   CreateOptions,
   ExecOptions,
   RemoveOptions,
+  RemoteTimeoutOptions,
   SandboxInfo,
   SbxTransport,
 } from "./transport.js";
+
+export {
+  API_SDK_PACKAGE,
+  ApiSbxTransport,
+  DEFAULT_CLOUD_IMAGE,
+  parseDurationMs,
+} from "./transport-api.js";
+export type { ApiSbxTransportOptions } from "./transport-api.js";
 
 export { DEFAULT_AGENT, DEFAULT_MAX_DOWNLOAD_BYTES, DEFAULT_TIMEOUT, DEFAULT_WORKING_DIR, SbxSandbox } from "./sandbox.js";
 export type { SbxSandboxOptions } from "./sandbox.js";

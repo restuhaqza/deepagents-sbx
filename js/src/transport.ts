@@ -33,6 +33,28 @@ export const DEFAULT_MAX_OUTPUT_BYTES = 512_000;
 export const CONTROL_MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
 /** Exit status reported by coreutils `timeout(1)` when it kills a command. */
 const TIMEOUT_EXIT_CODE = 124;
+
+export interface RemoteTimeoutOptions {
+  /** When false, no remote `timeout` wrapper is added (default true). */
+  enabled?: boolean;
+  /** Seconds `timeout` waits after SIGTERM before SIGKILL (default 5). */
+  killAfter?: number;
+}
+
+/**
+ * Argv prefix that wraps a command in the sandbox's coreutils `timeout`.
+ *
+ * Shared by {@link CliSbxTransport} and the API transport so both kill the
+ * remote process identically. `timeout(1)` treats a zero duration as disabled,
+ * so a sub-second deadline rounds up to 1s.
+ */
+export function remoteTimeoutPrefix(timeout: number | undefined, options: RemoteTimeoutOptions = {}): string[] {
+  const enabled = options.enabled ?? true;
+  if (!enabled || timeout === undefined || timeout <= 0) return [];
+  const killAfter = Math.max(1, options.killAfter ?? 5);
+  const seconds = Math.max(1, Math.ceil(timeout));
+  return ["timeout", "-k", `${killAfter}s`, `${seconds}s`];
+}
 /**
  * How long to wait after `'exit'` for the stdio streams to close before
  * settling anyway. `'close'` can be delayed indefinitely when a child inherits
@@ -441,12 +463,7 @@ export class CliSbxTransport implements SbxTransport {
   }
 
   private timeoutPrefix(timeout: number | undefined): string[] {
-    if (!this.remoteTimeout || timeout === undefined || timeout <= 0) return [];
-    // ``timeout(1)`` treats a zero duration as *disabled*, so a sub-second
-    // deadline must round up to at least one second or the sandbox-side kill
-    // becomes a no-op (the host backstop would then be the only guard).
-    const seconds = Math.max(1, Math.ceil(timeout));
-    return ["timeout", "-k", `${this.remoteKillAfter}s`, `${seconds}s`];
+    return remoteTimeoutPrefix(timeout, { enabled: this.remoteTimeout, killAfter: this.remoteKillAfter });
   }
 
   async exec(sandbox: string, command: string, options: ExecOptions = {}): Promise<CommandResult> {

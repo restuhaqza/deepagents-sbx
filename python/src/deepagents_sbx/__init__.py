@@ -38,6 +38,18 @@ from .transport import (
     parse_sandbox_list,
     resolve_cloud_shape,
 )
+from .transport_api import (
+    DEFAULT_CLOUD_IMAGE,
+    ENDPOINT_PERMISSIONS,
+    MANAGEMENT_BASE_URL,
+    ApiSbxTransport,
+    Fetch,
+    HttpResponse,
+    classify_http_failure,
+    format_duration,
+    parse_duration_seconds,
+    urllib_fetch,
+)
 
 __version__ = "0.1.0"
 
@@ -45,12 +57,18 @@ __all__ = [
     "CLOUD_SHAPES",
     "CONTROL_MAX_OUTPUT_BYTES",
     "DEFAULT_AGENT",
+    "DEFAULT_CLOUD_IMAGE",
     "DEFAULT_MAX_DOWNLOAD_BYTES",
     "DEFAULT_MAX_OUTPUT_BYTES",
     "DEFAULT_TIMEOUT",
     "DEFAULT_WORKING_DIR",
+    "ENDPOINT_PERMISSIONS",
+    "MANAGEMENT_BASE_URL",
+    "ApiSbxTransport",
     "CliSbxTransport",
     "CommandResult",
+    "Fetch",
+    "HttpResponse",
     "SandboxInfo",
     "SbxAuthError",
     "SbxCommandError",
@@ -64,7 +82,11 @@ __all__ = [
     "SbxTransport",
     "__version__",
     "classify_failure",
+    "classify_http_failure",
+    "format_duration",
+    "parse_duration_seconds",
     "parse_memory_mib",
     "parse_sandbox_list",
     "resolve_cloud_shape",
+    "urllib_fetch",
 ]
