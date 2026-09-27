@@ -58,7 +58,7 @@
   "devDependencies": {
     "@docker/sandboxes": "^0.51.0",
     "@eslint/js": "^10.0.1",
-    "@types/node": "^22.10.1",
+    "@types/node": "^26.6.2",
     "@vitest/coverage-v8": "^4.1.11",
     "deepagents": "^1.14.1",
     "eslint": "^10.11.0",
