@@ -50,4 +50,4 @@ export type { ApiSbxTransportOptions } from "./transport-api.js";
 export { DEFAULT_AGENT, DEFAULT_MAX_DOWNLOAD_BYTES, DEFAULT_TIMEOUT, DEFAULT_WORKING_DIR, SbxSandbox } from "./sandbox.js";
 export type { SbxSandboxOptions } from "./sandbox.js";
 
-export const VERSION = "0.1.0";
+export const VERSION = "0.2.0";

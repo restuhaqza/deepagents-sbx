@@ -8,6 +8,8 @@ While pre-1.0 (`0.x`), minor releases may include breaking changes.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-28
+
 ### Added
 
 - Python: `ApiSbxTransport`, an opt-in transport that drives Docker Cloud
@@ -33,5 +35,6 @@ While pre-1.0 (`0.x`), minor releases may include breaking changes.
 - Local (`sbx`) and cloud (`sbx-cloud`) providers for Deep Agents Code.
 - Cross-port conformance: Python and JavaScript share behavior pinned by contract tests.
 
-[Unreleased]: https://github.com/restuhaqza/deepagents-sbx/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/restuhaqza/deepagents-sbx/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/restuhaqza/deepagents-sbx/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/restuhaqza/deepagents-sbx/releases/tag/v0.1.0
