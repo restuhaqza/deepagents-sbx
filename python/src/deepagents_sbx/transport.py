@@ -373,6 +373,30 @@ def classify_failure(result: CommandResult) -> SbxError:
     )
 
 
+def remote_timeout_prefix(
+    timeout: float | None,
+    *,
+    enabled: bool = True,
+    kill_after: float = 5.0,
+) -> list[str]:
+    """Argv prefix that wraps a command in the sandbox's coreutils ``timeout(1)``.
+
+    Returned as separate argv elements (``timeout -k 5s 120s``) rather than a
+    nested shell string, so no additional quoting is needed: the transport
+    forwards each argv element verbatim to ``execve``. Shared by
+    :class:`CliSbxTransport` and :class:`~deepagents_sbx.transport_api.ApiSbxTransport`
+    so both kill the *remote* process identically.
+    """
+    if not enabled or timeout is None or timeout <= 0:
+        return []
+    kill_after = max(1.0, float(kill_after))
+    # ``timeout(1)`` treats a zero duration as *disabled*, so a sub-second
+    # deadline must round up to at least one second or the sandbox-side kill
+    # becomes a no-op (the host backstop would then be the only guard).
+    seconds = max(1, math.ceil(timeout))
+    return ["timeout", "-k", f"{kill_after:g}s", f"{seconds}s"]
+
+
 class SbxTransport(ABC):
     """Abstract operations :class:`SbxSandbox` needs from Docker Sandboxes."""
 
@@ -521,20 +545,12 @@ class CliSbxTransport(SbxTransport):
         return result
 
     def _timeout_prefix(self, timeout: float | None) -> list[str]:
-        """Argv prefix that wraps the command in the sandbox's coreutils ``timeout``.
-
-        Returned as separate argv elements (``timeout -k 5s 120s``) rather than a
-        nested shell string, so no additional quoting is needed: ``sbx exec``
-        forwards each argv element verbatim to ``execve``.
-        """
-        if not self.remote_timeout or timeout is None or timeout <= 0:
-            return []
-        kill_after = max(1.0, float(self.remote_kill_after))
-        # ``timeout(1)`` treats a zero duration as *disabled*, so a sub-second
-        # deadline must round up to at least one second or the sandbox-side kill
-        # becomes a no-op (the host backstop would then be the only guard).
-        seconds = max(1, math.ceil(timeout))
-        return ["timeout", "-k", f"{kill_after:g}s", f"{seconds}s"]
+        """Argv prefix wrapping the command in the sandbox's coreutils ``timeout``."""
+        return remote_timeout_prefix(
+            timeout,
+            enabled=self.remote_timeout,
+            kill_after=self.remote_kill_after,
+        )
 
     # -- SbxTransport ------------------------------------------------------
 
@@ -776,5 +792,6 @@ __all__ = [
     "classify_failure",
     "parse_memory_mib",
     "parse_sandbox_list",
+    "remote_timeout_prefix",
     "resolve_cloud_shape",
 ]

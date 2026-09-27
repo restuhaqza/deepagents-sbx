@@ -8,6 +8,18 @@ While pre-1.0 (`0.x`), minor releases may include breaking changes.
 
 ## [Unreleased]
 
+### Added
+
+- Python: `ApiSbxTransport`, an opt-in transport that drives Docker Cloud
+  Sandboxes over the [Sandboxes REST API](https://docs.docker.com/reference/api/sandboxes/latest/)
+  without spawning the `sbx` CLI. Authentication is independent of `sbx login`
+  (`access_token`, a `token_provider`, or a Docker ID + personal access token).
+  The CLI transport remains the default and the only supported local interface.
+  See #15.
+- JavaScript: `ApiSbxTransport`, the matching opt-in transport built on the
+  official `@docker/sandboxes` SDK. The SDK is an **optional peer dependency**
+  (loaded lazily), so the base install stays dependency-free. See #14.
+
 ## [0.1.0] - 2026-09-25
 
 ### Added
