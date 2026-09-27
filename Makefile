@@ -1,22 +1,31 @@
-.PHONY: help test lint fmt typecheck build integration clean publish-python publish-js
+.PHONY: help test integration test-js lint lint-js fmt typecheck typecheck-js build clean publish-python publish-js
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
 
-test: ## Run Python unit + contract tests (no Docker)
+test: ## Run Python unit + contract tests (coverage gate, no Docker)
 	cd python && .venv/bin/python -m pytest -q
 
 integration: ## Run Python integration tests (needs sbx login + virtualization)
-	cd python && .venv/bin/python -m pytest -m integration -q
+	cd python && .venv/bin/python -m pytest -m integration -q --no-cov
+
+test-js: ## Run JS unit + contract tests (coverage gate)
+	cd js && npm run test:coverage
 
 lint: ## Lint Python
 	cd python && .venv/bin/python -m ruff check src tests
+
+lint-js: ## Lint JS
+	cd js && npm run lint
 
 fmt: ## Format Python
 	cd python && .venv/bin/python -m ruff format src tests
 
 typecheck: ## Type-check Python
 	cd python && .venv/bin/python -m mypy
+
+typecheck-js: ## Type-check JS
+	cd js && npm run typecheck
 
 build: ## Build both packages
 	cd python && uv build

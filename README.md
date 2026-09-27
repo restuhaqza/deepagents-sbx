@@ -178,6 +178,17 @@ Alpha (`0.1.0`), published on
 [npm](https://www.npmjs.com/package/deepagents-sbx). Milestones and the verified
 environment matrix live in [docs/spec.md](docs/spec.md#milestones).
 
+## Contributing
+
+Contributions are welcome — bug reports, docs, tests, and code.
+Start with [CONTRIBUTING.md](CONTRIBUTING.md) for the dev setup and conventions,
+and see [CHANGELOG.md](CHANGELOG.md) for what changed between releases.
+
+- **Report a bug / request a feature:** [open an issue](https://github.com/restuhaqza/deepagents-sbx/issues/new/choose)
+- **Report a vulnerability:** privately via [SECURITY.md](.github/SECURITY.md) — please don't open a public issue
+
+This project follows the [Contributor Covenant](.github/CODE_OF_CONDUCT.md) code of conduct.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).

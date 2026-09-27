@@ -26,10 +26,9 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-      - name: Create venv
-        run: uv venv --python ${{ matrix.python-version }}
       - name: Install
-        run: uv pip install --python .venv/bin/python -e ".[dev]"
+        # Uses the committed uv.lock so CI resolves the same versions every run.
+        run: uv sync --python ${{ matrix.python-version }} --extra dev --locked
       - name: Lint
         run: .venv/bin/python -m ruff check src tests
       - name: Format check
@@ -65,7 +64,7 @@ jobs:
         run: npm run lint
       - name: Type check
         run: npm run typecheck
-      - name: Test
-        run: npm test
+      - name: Test (with coverage)
+        run: npm run test:coverage
       - name: Build
         run: npm run build

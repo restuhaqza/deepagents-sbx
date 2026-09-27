@@ -40,6 +40,7 @@
   "scripts": {
     "build": "tsup",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "typecheck": "tsc --noEmit",
@@ -51,6 +52,7 @@
   "devDependencies": {
     "@eslint/js": "^9.16.0",
     "@types/node": "^22.10.1",
+    "@vitest/coverage-v8": "^2.1.9",
     "deepagents": "^1.14.1",
     "eslint": "^9.16.0",
     "tsup": "^8.3.5",

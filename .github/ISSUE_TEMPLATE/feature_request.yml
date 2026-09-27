@@ -1,0 +1,36 @@
+name: Feature request
+description: Suggest an idea or enhancement
+title: "feat: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do, and what's in the way? Focus on the problem, not the solution.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What would you like to happen? Alternatives considered?
+    validations:
+      required: false
+  - type: dropdown
+    id: port
+    attributes:
+      label: Which package?
+      options:
+        - Python (`deepagents-sbx` on PyPI)
+        - JavaScript (`deepagents-sbx` on npm)
+        - Both
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+    validations:
+      required: false

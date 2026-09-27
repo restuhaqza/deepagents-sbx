@@ -1,0 +1,61 @@
+name: Bug report
+description: Something isn't working as expected
+title: "bug: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report! For security issues, please **do not** open a
+        public issue — see [SECURITY.md](https://github.com/restuhaqza/deepagents-sbx/blob/main/.github/SECURITY.md).
+  - type: dropdown
+    id: port
+    attributes:
+      label: Which package?
+      options:
+        - Python (`deepagents-sbx` on PyPI)
+        - JavaScript (`deepagents-sbx` on npm)
+        - Both
+        - Not sure
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Package version
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Environment
+      description: OS, Python or Node version, and `sbx` version.
+      placeholder: "macOS 15, Python 3.12, sbx 1.2.3"
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you expect, and what did you see instead?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: A minimal, self-contained reproduction if you can.
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs or output
+      render: shell
+    validations:
+      required: false
