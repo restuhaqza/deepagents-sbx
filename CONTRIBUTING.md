@@ -98,6 +98,50 @@ make help           # list all targets
 - Coverage is enforced at **85%** on both ports (`--cov-fail-under` for Python,
   `thresholds` for Vitest). CI fails below that.
 
+## Releasing
+
+A release is a version bump on `main`, a tag, and (optionally) a publish.
+
+1. **Bump every version source.** They are checked by `verify-version` at tag
+   time, and a stale one is easy to miss:
+
+   | Source | How |
+   |---|---|
+   | `python/pyproject.toml` | `version = "X.Y.Z"` |
+   | `python/src/deepagents_sbx/__init__.py` | `__version__ = "X.Y.Z"` |
+   | `python/uv.lock` | `uv lock` (usage below) — **not** hand-edited |
+   | `js/package.json` | `version: "X.Y.Z"` |
+   | `js/src/index.ts` | `export const VERSION = "X.Y.Z"` |
+   | `js/package-lock.json` | `npm install --package-lock-only` |
+
+   ```bash
+   cd python && uv lock                            # sync uv.lock to pyproject
+   cd js && npm install --package-lock-only        # sync package-lock to package.json
+   ```
+
+   > Bumping `pyproject.toml` without re-running `uv lock` breaks CI: every
+   > Python job installs with `uv sync --locked` and fails on the stale lockfile.
+
+2. **Promote the changelog.** Move `Unreleased` to `## [X.Y.Z] - YYYY-MM-DD`
+   and update the compare links at the bottom.
+
+3. **Merge to `main`** via PR, then tag the merged commit: `git tag -a vX.Y.Z`.
+   Tagging a side branch means the published artifacts do not match `main`.
+
+4. **Publish.** Both registries are opt-in and off by default:
+   - **CI (recommended):** set `PUBLISH_PYPI=true` / `PUBLISH_NPM=true`, then push
+     the tag. PyPI uses trusted publishing (OIDC) when `PYPI_TOKEN` is unset;
+     a `PYPI_TOKEN` secret takes precedence and bypasses OIDC.
+   - **Manual:** `cd python && rm -rf dist && uv build && uv publish --token pypi-…`
+     and `cd js && npm publish --access public`.
+     `npm publish --provenance` fails outside CI — omit it locally, but note the
+     published artifact then has no attestation.
+
+   > `uv publish` globs `dist/*`. Delete stale artifacts first, or it will try to
+   > re-upload an old version and fail.
+
+5. **Create the GitHub Release** for the tag using the changelog section as the body.
+
 ## Commit conventions
 
 Use [Conventional Commits](https://www.conventionalcommits.org/):

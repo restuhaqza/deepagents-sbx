@@ -33,14 +33,43 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Check versions line up
+        # The tag is authoritative: every version source must agree with it and
+        # with each other. `uv.lock` and the runtime constants are easy to
+        # forget (a stale `__version__` ships silently), so they are checked too.
         if: startsWith(github.ref, 'refs/tags/')
         run: |
+          set -eu
           tag="${GITHUB_REF_NAME#v}"
+
           py=$(grep -m1 '^version = ' python/pyproject.toml | cut -d'"' -f2)
+          py_runtime=$(grep -m1 '^__version__ = ' python/src/deepagents_sbx/__init__.py | cut -d'"' -f2)
+          py_lock=$(awk '/^name = "deepagents-sbx"$/{f=1} f && /^version = /{print; exit}' python/uv.lock | cut -d'"' -f2)
           js=$(node -p "require('./js/package.json').version")
-          echo "tag=$tag python=$py js=$js"
-          test "$tag" = "$py" || { echo "::error::tag $tag != python version $py"; exit 1; }
-          test "$tag" = "$js" || { echo "::error::tag $tag != npm version $js"; exit 1; }
+          js_runtime=$(grep -m1 '^export const VERSION = ' js/src/index.ts | cut -d'"' -f2)
+          js_lock=$(node -p "require('./js/package-lock.json').version")
+
+          echo "tag=$tag"
+          echo "  python/pyproject.toml           = $py"
+          echo "  python __version__              = $py_runtime"
+          echo "  python/uv.lock                  = $py_lock"
+          echo "  js/package.json                 = $js"
+          echo "  js VERSION                      = $js_runtime"
+          echo "  js/package-lock.json            = $js_lock"
+
+          fail=0
+          check() {
+            if [ "$2" != "$tag" ]; then
+              echo "::error::$1 is $2, expected $tag (run 'uv lock' / 'npm install' after bumping)"
+              fail=1
+            fi
+          }
+          check "python/pyproject.toml" "$py"
+          check "python __version__" "$py_runtime"
+          check "python/uv.lock" "$py_lock"
+          check "js/package.json" "$js"
+          check "js VERSION" "$js_runtime"
+          check "js/package-lock.json" "$js_lock"
+          exit "$fail"
 
   python:
     name: Publish to PyPI
