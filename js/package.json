@@ -56,7 +56,7 @@
     }
   },
   "devDependencies": {
-    "@docker/sandboxes": "^0.51.0",
+    "@docker/sandboxes": "^0.53.0",
     "@eslint/js": "^10.0.1",
     "@types/node": "^22.10.1",
     "@vitest/coverage-v8": "^4.1.11",
